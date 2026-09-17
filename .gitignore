@@ -1,0 +1,11 @@
+# Secrets / local config
+.env
+
+# macOS
+.DS_Store
+
+# Apache default CGI scripts (not part of the app)
+cgi-bin/
+
+# Legacy demo schema (superseded by resetdb.sql at the repo root)
+api/config/resetdb.sql
