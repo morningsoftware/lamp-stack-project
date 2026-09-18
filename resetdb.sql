@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS skills;
 DROP TABLE IF EXISTS social_links;
 DROP TABLE IF EXISTS contacts;
 DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS password_resets;
 DROP TABLE IF EXISTS users;
 
 -- Create users table
@@ -28,16 +29,17 @@ CREATE TABLE users (
   userid      INT AUTO_INCREMENT PRIMARY KEY,
   loginuid    VARCHAR(50)  NOT NULL,
   email       VARCHAR(255) NOT NULL,
-  password    VARBINARY(255) NOT NULL,
+  password    VARCHAR(255) NOT NULL,
   firstname   VARCHAR(50)  NOT NULL,
   lastname    VARCHAR(50)  NOT NULL,
-  displayname VARCHAR(100) NOT NULL,
+  displayname VARCHAR(100) DEFAULT NULL,
   bio         TEXT,
   location    VARCHAR(100),
   jobtitle    VARCHAR(100),
   avatar      VARCHAR(255),
   resume      VARCHAR(255),
-  isactive    INT NOT NULL DEFAULT 1,
+  isactive    TINYINT(1) NOT NULL DEFAULT 1,
+  isadmin     TINYINT(1) NOT NULL DEFAULT 0,
   created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY users_loginid (loginuid),
@@ -46,18 +48,23 @@ CREATE TABLE users (
 
 -- Create contacts table
 CREATE TABLE contacts (
-  contactid   INT AUTO_INCREMENT PRIMARY KEY,
-  userid      INT NOT NULL,
-  firstname   VARCHAR(50)  DEFAULT '',
-  lastname    VARCHAR(50)  DEFAULT '',
-  description VARCHAR(100) DEFAULT NULL,
-  email       VARCHAR(100) DEFAULT '',
-  phone       VARCHAR(10)  DEFAULT '',
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  contactid      INT AUTO_INCREMENT PRIMARY KEY,
+  userid         INT NOT NULL,
+  contact_userid INT DEFAULT NULL,
+  firstname      VARCHAR(50)  DEFAULT '',
+  lastname       VARCHAR(50)  DEFAULT '',
+  description    VARCHAR(100) DEFAULT NULL,
+  email          VARCHAR(100) DEFAULT '',
+  phone          VARCHAR(10)  DEFAULT '',
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_contacts_owner_target (userid, contact_userid),
   KEY idx_contacts_userid (userid),
+  KEY idx_contacts_contact_userid (contact_userid),
   CONSTRAINT fk_contacts_userid FOREIGN KEY (userid)
-    REFERENCES users (userid) ON DELETE CASCADE ON UPDATE CASCADE
+    REFERENCES users (userid) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_contacts_contact_userid FOREIGN KEY (contact_userid)
+    REFERENCES users (userid) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Create social links table
@@ -156,12 +163,32 @@ CREATE TABLE sessions (
     REFERENCES users (userid) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Create password resets table (admin-issued single-use links)
+CREATE TABLE password_resets (
+  token_hash CHAR(64) NOT NULL,
+  userid     INT NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_by INT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (token_hash),
+  KEY idx_password_resets_userid (userid),
+  KEY idx_password_resets_expires_at (expires_at),
+  CONSTRAINT fk_password_resets_userid FOREIGN KEY (userid)
+    REFERENCES users (userid) ON DELETE CASCADE,
+  CONSTRAINT fk_password_resets_created_by FOREIGN KEY (created_by)
+    REFERENCES users (userid) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Create conversations for direct messaging
 CREATE TABLE conversations (
   conversationid  INT AUTO_INCREMENT PRIMARY KEY,
+  name            VARCHAR(100) DEFAULT NULL,
+  created_by      INT DEFAULT NULL,
   created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_message_at TIMESTAMP NULL DEFAULT NULL,
-  KEY idx_conversations_last_message_at (last_message_at)
+  KEY idx_conversations_last_message_at (last_message_at),
+  CONSTRAINT fk_conversations_created_by FOREIGN KEY (created_by)
+    REFERENCES users (userid) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Participants of each conversation (tracks per-user read state)
@@ -196,27 +223,35 @@ CREATE TABLE messages (
 -- Seed data
 
 INSERT INTO users
-  (loginuid, email, password, firstname, lastname, displayname, bio, location, jobtitle, avatar, resume)
+  (loginuid, email, password, firstname, lastname, displayname, bio, location, jobtitle, resume)
 VALUES
   ('jdoe', 'jane@example.com', '$2y$12$l6cMqSWkTMMcc1ZzNngq4uGxSdRFuh6k/4NR.E1l4u195zGgT1szK',
    'Jane', 'Doe', 'Jane Doe',
    'Full-stack developer who enjoys building small, useful tools.',
    'Melbourne, FL', 'Software Engineer',
-   '/assets/img/avatar-jdoe.png', '/assets/resume/jdoe.pdf'),
+   '/assets/resume/jdoe.pdf'),
   ('asmith', 'alex@example.com', '$2y$12$Ip/c6G.5eywb3TXYsZ9ai.duz0bpOgUiSj0nDHMfe.w1QcPDftZp6',
    'Alex', 'Smith', 'Alex Smith',
    'Backend engineer focused on APIs, databases and developer tooling.',
    'Orlando, FL', 'Platform Engineer',
-   '/assets/img/avatar-asmith.png', '/assets/resume/asmith.pdf');
+   '/assets/resume/asmith.pdf');
+
+-- Seeded admin (password: ChangeMe123! — change after first login)
+INSERT INTO users
+  (loginuid, email, password, firstname, lastname, displayname, isadmin)
+VALUES
+  ('admin', 'admin@collab.dev', '$2y$12$9OPzwajcZv09qf6vNYY7MuC4q7zyHaFPeWf8rGUN/9fnC2aaFZeL6',
+   'Site', 'Admin', 'Site Admin', 1);
 
 SET @jane = (SELECT userid FROM users WHERE loginuid = 'jdoe');
 SET @alex = (SELECT userid FROM users WHERE loginuid = 'asmith');
 
 -- Address-book entries (a contact need not be an app user)
-INSERT INTO contacts (userid, firstname, lastname, description, email, phone) VALUES
-  (@jane, 'Sam',   'Lee',      'College friend',    'sam.lee@example.com',   '3215550101'),
-  (@jane, 'Priya', 'Patel',    'Former teammate',   'priya@example.com',     '3215550102'),
-  (@alex, 'Diego', 'Martinez', 'Met at a hackathon','diego@example.com',     '4075550103');
+INSERT INTO contacts (userid, contact_userid, firstname, lastname, description, email, phone) VALUES
+  (@jane, NULL,  'Sam',   'Lee',      'College friend',      'sam.lee@example.com', '3215550101'),
+  (@jane, NULL,  'Priya', 'Patel',    'Former teammate',     'priya@example.com',   '3215550102'),
+  (@alex, NULL,  'Diego', 'Martinez', 'Met at a hackathon',  'diego@example.com',   '4075550103'),
+  (@jane, @alex, 'Alex',  'Smith',    'collab.dev developer','alex@example.com',    '');
 
 INSERT INTO social_links (userid, platform, url, display_order) VALUES
   (@jane, 'GitHub',   'https://github.com/jdoe',           1),
@@ -226,12 +261,65 @@ INSERT INTO social_links (userid, platform, url, display_order) VALUES
   (@alex, 'LinkedIn', 'https://linkedin.com/in/asmith',    2);
 
 INSERT INTO skills (name, category) VALUES
-  ('PHP',        'Language'),
-  ('JavaScript', 'Language'),
-  ('SQL',        'Database'),
-  ('MySQL',      'Database'),
-  ('API Design', 'Practice'),
-  ('Docker',     'Tooling');
+  ('PHP',             'Language'),
+  ('JavaScript',      'Language'),
+  ('TypeScript',      'Language'),
+  ('Python',          'Language'),
+  ('Java',            'Language'),
+  ('C',               'Language'),
+  ('C++',             'Language'),
+  ('C#',              'Language'),
+  ('Go',              'Language'),
+  ('Rust',            'Language'),
+  ('Ruby',            'Language'),
+  ('Swift',           'Language'),
+  ('Kotlin',          'Language'),
+  ('Scala',           'Language'),
+  ('R',               'Language'),
+  ('Dart',            'Language'),
+  ('Perl',            'Language'),
+  ('Haskell',         'Language'),
+  ('Lua',             'Language'),
+  ('Elixir',          'Language'),
+  ('Objective-C',     'Language'),
+  ('Shell',           'Language'),
+  ('SQL',             'Database'),
+  ('MySQL',           'Database'),
+  ('PostgreSQL',      'Database'),
+  ('SQLite',          'Database'),
+  ('MongoDB',         'Database'),
+  ('Redis',           'Database'),
+  ('MariaDB',         'Database'),
+  ('React',           'Frontend'),
+  ('Vue',             'Frontend'),
+  ('Angular',         'Frontend'),
+  ('Svelte',          'Frontend'),
+  ('HTML',            'Frontend'),
+  ('CSS',             'Frontend'),
+  ('Tailwind CSS',    'Frontend'),
+  ('Node.js',         'Backend'),
+  ('Express',         'Backend'),
+  ('Laravel',         'Backend'),
+  ('Django',          'Backend'),
+  ('Flask',           'Backend'),
+  ('Spring Boot',     'Backend'),
+  ('.NET',            'Backend'),
+  ('Docker',          'Tooling'),
+  ('Kubernetes',      'Tooling'),
+  ('Git',             'Tooling'),
+  ('CI/CD',           'Tooling'),
+  ('Linux',           'Tooling'),
+  ('Nginx',           'Tooling'),
+  ('AWS',             'Cloud'),
+  ('Azure',           'Cloud'),
+  ('Google Cloud',    'Cloud'),
+  ('Terraform',       'Cloud'),
+  ('API Design',      'Practice'),
+  ('Testing',         'Practice'),
+  ('Agile',           'Practice'),
+  ('DevOps',          'Practice'),
+  ('Machine Learning','Practice'),
+  ('Data Analysis',   'Practice');
 
 SET @php   = (SELECT skillid FROM skills WHERE name = 'PHP');
 SET @js    = (SELECT skillid FROM skills WHERE name = 'JavaScript');
