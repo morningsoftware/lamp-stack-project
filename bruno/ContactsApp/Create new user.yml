@@ -1,0 +1,28 @@
+info:
+  name: Create new user
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/auth/register"
+  body:
+    type: multipart-form
+    data:
+      - name: login
+        type: text
+        value: morningsoftware
+      - name: email
+        type: text
+        value: morningsoftware@proton.me
+      - name: password
+        type: text
+        value: password1!
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

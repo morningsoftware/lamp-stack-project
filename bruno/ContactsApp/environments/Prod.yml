@@ -1,0 +1,5 @@
+name: prid
+variables:
+  - name: urlBase
+    value: http://lamp.morning.codes
+    description: ""

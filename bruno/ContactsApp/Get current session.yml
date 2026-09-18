@@ -1,0 +1,16 @@
+info:
+  name: Get current session
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: ""
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
