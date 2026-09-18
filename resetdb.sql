@@ -6,9 +6,9 @@
 --              with limited permissions.
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS developer_bio_site
+CREATE DATABASE IF NOT EXISTS ContactManagerDB
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE developer_bio_site;
+USE ContactManagerDB;
 
 -- Drop tables (children before parents)
 DROP TABLE IF EXISTS messages;
@@ -22,36 +22,42 @@ DROP TABLE IF EXISTS social_links;
 DROP TABLE IF EXISTS profiles;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS contacts;
 
 -- Create users table
 CREATE TABLE users (
   userid        INT AUTO_INCREMENT PRIMARY KEY,
   loginuid      VARCHAR(50)  NOT NULL,
   email         VARCHAR(255) NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
+  password      VARBINARY(255) NOT NULL,
+  firstname     VARCHAR(50) NOT NULL,
+  lastname      VARCHAR(50) NOT NULL,
+  jobtitle      VARCHAR(100),
+  avatar        VARCHAR(255),
+  resume        VARCHAR(255),
+  isactive      INT NOT NULL DEFAULT 1,
   created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_users_loginuid (loginuid),
-  UNIQUE KEY uq_users_email (email)
+  UNIQUE KEY users_loginid (loginuid),
+  UNIQUE KEY users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Create profiles table
-CREATE TABLE profiles (
-  profileid    INT AUTO_INCREMENT PRIMARY KEY,
-  userid       INT NOT NULL,
-  firstname    VARCHAR(50),
-  lastname     VARCHAR(50),
-  display_name VARCHAR(100),
-  bio          TEXT,
-  location     VARCHAR(100),
-  job_title    VARCHAR(100),
-  avatar_url   VARCHAR(255),
-  resume_url   VARCHAR(255),
-  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_profiles_userid (userid),
-  CONSTRAINT fk_profiles_userid FOREIGN KEY (userid)
-    REFERENCES users (userid) ON DELETE CASCADE
+-- Create contacts table
+CREATE TABLE contacts (
+	contactid   INT AUTO_INCREMENT PRIMARY KEY,
+  userid      INT NOT NULL,
+  displayname VARCHAR(50),
+  firstname   VARCHAR(50) DEFAULT '',
+  lastname    VARCHAR(50) DEFAULT '',
+  bio         VARCHAR(255),
+  email       VARCHAR(100) DEFAULT '',
+  phone       VARCHAR(10) DEFAULT '',
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY contacts_userid (userid),
+  CONSTRAINT contacts_userid FOREIGN KEY (userid) REFERENCES users (userid) 
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Create social links table
@@ -189,24 +195,17 @@ CREATE TABLE messages (
 
 -- Seed data
 
-INSERT INTO users (loginuid, email, password_hash) VALUES
-  ('jdoe', 'jane@example.com', '$2y$12$l6cMqSWkTMMcc1ZzNngq4uGxSdRFuh6k/4NR.E1l4u195zGgT1szK'),
-  ('asmith', 'alex@example.com', '$2y$12$Ip/c6G.5eywb3TXYsZ9ai.duz0bpOgUiSj0nDHMfe.w1QcPDftZp6');
+INSERT INTO users (loginuid, email, password, firstname, lastname, jobtitle, avatar, resume) VALUES
+  ('jdoe', 'jane@example.com', 'I2gUFWXa23Go', 'Jane', 'Doe', 'Software Engineer', '/assets/img/avatar-jdoe.png', '/assets/resume/jdoe.pdf'),
+  ('asmith', 'alex@example.com', 'x7ToQNbN758z', 'Alex', 'Smith', 'Platform Engineer', '/assets/img/avatar-asmith.png', '/assets/resume/asmith.pdf');
+
 
 SET @jane = (SELECT userid FROM users WHERE loginuid = 'jdoe');
 SET @alex = (SELECT userid FROM users WHERE loginuid = 'asmith');
 
-INSERT INTO profiles
-  (userid, firstname, lastname, display_name, bio, location, job_title, avatar_url, resume_url)
-VALUES
-  (@jane, 'Jane', 'Doe', 'Jane Doe',
-   'Full-stack developer who enjoys building small, useful tools.',
-   'Melbourne, FL', 'Software Engineer',
-   '/assets/img/avatar-jdoe.png', '/assets/resume/jdoe.pdf'),
-  (@alex, 'Alex', 'Smith', 'Alex Smith',
-   'Backend engineer focused on APIs, databases and developer tooling.',
-   'Orlando, FL', 'Platform Engineer',
-   '/assets/img/avatar-asmith.png', '/assets/resume/asmith.pdf');
+INSERT INTO contacts (userid, displayname, firstname, lastname, bio) VALUES
+  (@jane, 'Jane Doe', 'Jane', 'Doe',   'Full-stack developer who enjoys building small, useful tools.'),
+  (@alex, 'Alex Smith', 'Alex', 'Smith', 'Backend engineer focused on APIs, databases and developer tooling.');
 
 INSERT INTO social_links (userid, platform, url, display_order) VALUES
   (@jane, 'GitHub',   'https://github.com/jdoe',           1),
@@ -295,12 +294,12 @@ UPDATE conversation_participants
   WHERE conversationid = @convo AND userid = @jane;
 
 -- Create user and set permissions
-DROP USER IF EXISTS 'bioapp_user'@'localhost';
-CREATE USER 'bioapp_user'@'localhost' IDENTIFIED BY 'VeryStrongPass1!';
+DROP USER IF EXISTS 'ContactManagerUser'@'localhost';
+CREATE USER 'ContactManagerUser'@'localhost' IDENTIFIED BY 'VeryStrongPass1!';
 
 -- Grant required privileges
 GRANT SELECT, INSERT, UPDATE, DELETE
-  ON developer_bio_site.*
-  TO 'bioapp_user'@'localhost';
+  ON ContactManagerDB.*
+  TO 'ContactManagerUser'@'localhost';
 
 FLUSH PRIVILEGES;
