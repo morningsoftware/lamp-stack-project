@@ -27,6 +27,14 @@ switch ($resource) {
         require __DIR__ . '/handlers/compare.php';
         break;
 
+    case 'contacts':
+        require __DIR__ . '/handlers/contacts.php';
+        break;
+
+    case 'admin':
+        require __DIR__ . '/handlers/admin.php';
+        break;
+
     case 'skills':
         require __DIR__ . '/handlers/skills.php';
         break;

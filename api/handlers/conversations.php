@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-//  api/handlers/conversations.php — Direct messaging
+//  api/handlers/conversations.php — Direct & group messaging
 // ============================================================
 
 require_once __DIR__ . '/../config/db.php';
@@ -48,6 +48,38 @@ if ($sub === 'read') {
     markRead($db, $conversationid, $userid);
 }
 
+if ($sub === 'participants') {
+    $memberId = $segments[3] ?? null;
+
+    if ($memberId === null) {
+        if (requestMethod() === 'GET') {
+            getConversation($db, $conversationid, $userid);
+        }
+        if (requestMethod() === 'POST') {
+            addParticipants($db, $conversationid, $userid);
+        }
+        header('Allow: GET, POST');
+        respond(405, ['error' => 'Method not allowed']);
+    }
+
+    if (requestMethod() === 'DELETE') {
+        removeParticipant($db, $conversationid, $userid, requireId($memberId, 'user id'));
+    }
+    header('Allow: DELETE');
+    respond(405, ['error' => 'Method not allowed']);
+}
+
+if ($sub === null) {
+    if (requestMethod() === 'GET') {
+        getConversation($db, $conversationid, $userid);
+    }
+    if (requestMethod() === 'PUT') {
+        renameConversation($db, $conversationid, $userid);
+    }
+    header('Allow: GET, PUT');
+    respond(405, ['error' => 'Method not allowed']);
+}
+
 respond(404, ['error' => 'Not found']);
 
 /**
@@ -58,7 +90,7 @@ respond(404, ['error' => 'Not found']);
  */
 function listConversations($db, $userid) {
     $stmt = $db->prepare(
-        "SELECT c.conversationid, c.last_message_at,
+        "SELECT c.conversationid, c.name, c.last_message_at,
                 (SELECT m.body FROM messages m
                   WHERE m.conversationid = c.conversationid
                   ORDER BY m.messageid DESC LIMIT 1) AS last_message,
@@ -93,6 +125,8 @@ function listConversations($db, $userid) {
         ));
         $conversations[] = [
             'conversationid' => $cid,
+            'name'           => $row['name'],
+            'isGroup'        => count($others) > 1,
             'lastMessageAt'  => $row['last_message_at'],
             'lastMessage'    => $row['last_message'],
             'lastSender'     => $row['last_sender'] !== null ? (int) $row['last_sender'] : null,
@@ -105,7 +139,41 @@ function listConversations($db, $userid) {
 }
 
 /**
- * Finds or creates a direct conversation with another user.
+ * Returns a single conversation with its participants.
+ *
+ * @param PDO $db
+ * @param int $conversationid
+ * @param int $userid
+ */
+function getConversation($db, $conversationid, $userid) {
+    requireParticipant($db, $conversationid, $userid);
+
+    $stmt = $db->prepare(
+        'SELECT conversationid, name, created_by, created_at, last_message_at
+         FROM conversations WHERE conversationid = :cid'
+    );
+    $stmt->execute([':cid' => $conversationid]);
+    $convo = $stmt->fetch();
+    if (!$convo) {
+        respond(404, ['error' => 'Conversation not found']);
+    }
+
+    $participants = fetchParticipants($db, [$conversationid]);
+
+    respond(200, ['data' => [
+        'conversationid' => (int) $convo['conversationid'],
+        'name'           => $convo['name'],
+        'createdBy'      => $convo['created_by'] !== null ? (int) $convo['created_by'] : null,
+        'createdAt'      => $convo['created_at'],
+        'lastMessageAt'  => $convo['last_message_at'],
+        'isGroup'        => count($participants[$conversationid] ?? []) > 2,
+        'participants'   => $participants[$conversationid] ?? [],
+    ]]);
+}
+
+/**
+ * Creates a direct conversation (one recipient) or a group (many recipients
+ * and/or a name).
  *
  * @param PDO $db
  * @param int $userid
@@ -113,60 +181,91 @@ function listConversations($db, $userid) {
 function createConversation($db, $userid) {
     $body = getRequestBody();
 
-    $recipientId = isset($body['recipientId']) ? (int) $body['recipientId'] : 0;
-    if ($recipientId <= 0 && isset($body['recipientLogin'])) {
+    $raw = [];
+    if (isset($body['participantIds']) && is_array($body['participantIds'])) {
+        $raw = $body['participantIds'];
+    } elseif (isset($body['recipientIds']) && is_array($body['recipientIds'])) {
+        $raw = $body['recipientIds'];
+    } elseif (isset($body['recipientId'])) {
+        $raw = [$body['recipientId']];
+    }
+
+    $ids = [];
+    foreach ($raw as $rid) {
+        $rid = (int) $rid;
+        if ($rid > 0 && $rid !== $userid) {
+            $ids[$rid] = $rid;
+        }
+    }
+
+    if (!$ids && isset($body['recipientLogin'])) {
         $lookup = $db->prepare('SELECT userid FROM users WHERE loginuid = :login LIMIT 1');
         $lookup->execute([':login' => clean($body['recipientLogin'])]);
         $row = $lookup->fetch();
-        $recipientId = $row ? (int) $row['userid'] : 0;
+        if ($row && (int) $row['userid'] !== $userid) {
+            $ids[(int) $row['userid']] = (int) $row['userid'];
+        }
     }
 
-    if ($recipientId <= 0) {
-        respond(400, ['error' => 'A valid recipient is required']);
-    }
-    if ($recipientId === $userid) {
-        respond(400, ['error' => 'You cannot start a conversation with yourself']);
+    if (!$ids) {
+        respond(400, ['error' => 'At least one other participant is required']);
     }
 
-    $exists = $db->prepare('SELECT userid FROM users WHERE userid = :userid');
-    $exists->execute([':userid' => $recipientId]);
-    if (!$exists->fetch()) {
-        respond(404, ['error' => 'Recipient not found']);
-    }
+    $ids = array_values($ids);
+    ensureUsersExist($db, $ids);
 
-    $find = $db->prepare(
-        'SELECT cp1.conversationid
-         FROM conversation_participants cp1
-         JOIN conversation_participants cp2
-           ON cp2.conversationid = cp1.conversationid AND cp2.userid = :recipient
-         WHERE cp1.userid = :userid
-           AND (SELECT COUNT(*) FROM conversation_participants cp3
-                 WHERE cp3.conversationid = cp1.conversationid) = 2
-         LIMIT 1'
-    );
-    $find->execute([':userid' => $userid, ':recipient' => $recipientId]);
-    $existing = $find->fetch();
+    $name    = isset($body['name']) ? clean($body['name']) : '';
+    $isGroup = count($ids) > 1 || $name !== '';
 
-    if ($existing) {
-        $conversationid = (int) $existing['conversationid'];
-        $status = 200;
+    if (!$isGroup) {
+        $recipientId = $ids[0];
+
+        $find = $db->prepare(
+            'SELECT cp1.conversationid
+             FROM conversation_participants cp1
+             JOIN conversation_participants cp2
+               ON cp2.conversationid = cp1.conversationid AND cp2.userid = :recipient
+             WHERE cp1.userid = :userid
+               AND (SELECT COUNT(*) FROM conversation_participants cp3
+                     WHERE cp3.conversationid = cp1.conversationid) = 2
+             LIMIT 1'
+        );
+        $find->execute([':userid' => $userid, ':recipient' => $recipientId]);
+        $existing = $find->fetch();
+
+        if ($existing) {
+            $conversationid = (int) $existing['conversationid'];
+            $status = 200;
+        } else {
+            try {
+                $db->beginTransaction();
+                $ins = $db->prepare('INSERT INTO conversations (created_by) VALUES (:me)');
+                $ins->execute([':me' => $userid]);
+                $conversationid = (int) $db->lastInsertId();
+                insertParticipants($db, $conversationid, array_merge([$userid], $ids));
+                $db->commit();
+            } catch (PDOException $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                error_log('Create conversation error: ' . $e->getMessage());
+                respond(500, ['error' => 'Could not create conversation']);
+            }
+            $status = 201;
+        }
     } else {
         try {
             $db->beginTransaction();
-            $db->exec('INSERT INTO conversations () VALUES ()');
+            $ins = $db->prepare('INSERT INTO conversations (name, created_by) VALUES (:name, :me)');
+            $ins->execute([':name' => $name !== '' ? $name : null, ':me' => $userid]);
             $conversationid = (int) $db->lastInsertId();
-
-            $add = $db->prepare(
-                'INSERT INTO conversation_participants (conversationid, userid) VALUES (:cid, :userid)'
-            );
-            $add->execute([':cid' => $conversationid, ':userid' => $userid]);
-            $add->execute([':cid' => $conversationid, ':userid' => $recipientId]);
+            insertParticipants($db, $conversationid, array_merge([$userid], $ids));
             $db->commit();
         } catch (PDOException $e) {
             if ($db->inTransaction()) {
                 $db->rollBack();
             }
-            error_log('Create conversation error: ' . $e->getMessage());
+            error_log('Create group error: ' . $e->getMessage());
             respond(500, ['error' => 'Could not create conversation']);
         }
         $status = 201;
@@ -180,7 +279,102 @@ function createConversation($db, $userid) {
 }
 
 /**
- * Returns paginated messages in a conversation.
+ * Adds one or more participants to an existing conversation.
+ *
+ * @param PDO $db
+ * @param int $conversationid
+ * @param int $userid
+ */
+function addParticipants($db, $conversationid, $userid) {
+    requireParticipant($db, $conversationid, $userid);
+
+    $body = getRequestBody();
+    $raw  = [];
+    if (isset($body['userIds']) && is_array($body['userIds'])) {
+        $raw = $body['userIds'];
+    } elseif (isset($body['userId'])) {
+        $raw = [$body['userId']];
+    }
+
+    $ids = [];
+    foreach ($raw as $rid) {
+        $rid = (int) $rid;
+        if ($rid > 0) {
+            $ids[$rid] = $rid;
+        }
+    }
+    if (!$ids) {
+        respond(400, ['error' => 'At least one user is required']);
+    }
+    $ids = array_values($ids);
+    ensureUsersExist($db, $ids);
+
+    insertParticipants($db, $conversationid, $ids);
+
+    $participants = fetchParticipants($db, [$conversationid]);
+    respond(200, ['data' => [
+        'conversationid' => $conversationid,
+        'participants'   => $participants[$conversationid] ?? [],
+    ]]);
+}
+
+/**
+ * Removes a participant. A user may always remove themselves; otherwise only
+ * the conversation creator can remove others.
+ *
+ * @param PDO $db
+ * @param int $conversationid
+ * @param int $userid
+ * @param int $targetId
+ */
+function removeParticipant($db, $conversationid, $userid, $targetId) {
+    requireParticipant($db, $conversationid, $userid);
+
+    if ($targetId !== $userid) {
+        $stmt = $db->prepare('SELECT created_by FROM conversations WHERE conversationid = :cid');
+        $stmt->execute([':cid' => $conversationid]);
+        $createdBy = (int) $stmt->fetchColumn();
+        if ($createdBy !== $userid) {
+            respond(403, ['error' => 'You can only remove yourself from this conversation']);
+        }
+    }
+
+    $stmt = $db->prepare(
+        'DELETE FROM conversation_participants WHERE conversationid = :cid AND userid = :userid'
+    );
+    $stmt->execute([':cid' => $conversationid, ':userid' => $targetId]);
+
+    if ($stmt->rowCount() === 0) {
+        respond(404, ['error' => 'That user is not in this conversation']);
+    }
+
+    respond(200, ['data' => ['conversationid' => $conversationid, 'removed' => $targetId]]);
+}
+
+/**
+ * Renames a group conversation.
+ *
+ * @param PDO $db
+ * @param int $conversationid
+ * @param int $userid
+ */
+function renameConversation($db, $conversationid, $userid) {
+    requireParticipant($db, $conversationid, $userid);
+
+    $body = getRequestBody();
+    if (!array_key_exists('name', $body)) {
+        respond(400, ['error' => 'A name is required']);
+    }
+    $name = clean($body['name']);
+
+    $stmt = $db->prepare('UPDATE conversations SET name = :name WHERE conversationid = :cid');
+    $stmt->execute([':name' => $name !== '' ? $name : null, ':cid' => $conversationid]);
+
+    respond(200, ['data' => ['conversationid' => $conversationid, 'name' => $name !== '' ? $name : null]]);
+}
+
+/**
+ * Returns paginated messages in a conversation, with sender details.
  *
  * @param PDO $db
  * @param int $conversationid
@@ -193,16 +387,20 @@ function listMessages($db, $conversationid, $userid) {
     $limit  = max(1, min(100, $limit));
     $before = isset($_GET['before']) ? (int) $_GET['before'] : 0;
 
-    $sql = 'SELECT messageid, sender_userid, body, created_at
-            FROM messages
-            WHERE conversationid = :cid';
+    $sql = 'SELECT m.messageid, m.sender_userid, m.body, m.created_at,
+                   u.loginuid AS sender_login, u.displayname AS sender_displayname,
+                   COALESCE(gp.avatar_url, u.avatar) AS sender_avatar
+            FROM messages m
+            JOIN users u ON u.userid = m.sender_userid
+            LEFT JOIN github_profiles gp ON gp.userid = u.userid
+            WHERE m.conversationid = :cid';
     $params = [':cid' => $conversationid];
 
     if ($before > 0) {
-        $sql .= ' AND messageid < :before';
+        $sql .= ' AND m.messageid < :before';
         $params[':before'] = $before;
     }
-    $sql .= ' ORDER BY messageid DESC LIMIT :limit';
+    $sql .= ' ORDER BY m.messageid DESC LIMIT :limit';
 
     $stmt = $db->prepare($sql);
     foreach ($params as $key => $value) {
@@ -307,6 +505,43 @@ function insertMessage($db, $conversationid, $userid, $body) {
 }
 
 /**
+ * Inserts participant rows (ignoring duplicates).
+ *
+ * @param PDO $db
+ * @param int $conversationid
+ * @param int[] $userIds
+ */
+function insertParticipants($db, $conversationid, $userIds) {
+    $stmt = $db->prepare(
+        'INSERT IGNORE INTO conversation_participants (conversationid, userid)
+         VALUES (:cid, :userid)'
+    );
+    foreach (array_unique($userIds) as $uid) {
+        $stmt->execute([':cid' => $conversationid, ':userid' => (int) $uid]);
+    }
+}
+
+/**
+ * Ensures every id in the list belongs to an existing user.
+ *
+ * @param PDO $db
+ * @param int[] $ids
+ */
+function ensureUsersExist($db, $ids) {
+    if (!$ids) {
+        return;
+    }
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $db->prepare("SELECT userid FROM users WHERE userid IN ({$placeholders})");
+    $stmt->execute($ids);
+    $found = array_map('intval', array_column($stmt->fetchAll(), 'userid'));
+
+    if (count($found) !== count($ids)) {
+        respond(404, ['error' => 'One or more users were not found']);
+    }
+}
+
+/**
  * Ensures a user participates in a conversation.
  *
  * @param PDO $db
@@ -339,13 +574,13 @@ function fetchParticipants($db, $conversationIds) {
 
     $placeholders = implode(',', array_fill(0, count($conversationIds), '?'));
     $stmt = $db->prepare(
-        "SELECT cp.conversationid, u.userid, u.loginuid,
-                p.display_name, p.avatar_url
+        "SELECT cp.conversationid, u.userid, u.loginuid, u.displayname,
+                COALESCE(gp.avatar_url, u.avatar) AS avatar
          FROM conversation_participants cp
          JOIN users u ON u.userid = cp.userid
-         LEFT JOIN profiles p ON p.userid = u.userid
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid
          WHERE cp.conversationid IN ({$placeholders})
-         ORDER BY cp.conversationid"
+         ORDER BY cp.conversationid, u.displayname"
     );
     $stmt->execute($conversationIds);
 

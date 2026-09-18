@@ -105,12 +105,11 @@ respond(200, ['data' => [
  */
 function compareUser($db, $userid) {
     $stmt = $db->prepare(
-        'SELECT u.userid, u.loginuid, p.display_name, p.firstname, p.lastname,
-                p.avatar_url, p.job_title, p.location, p.bio,
+        'SELECT u.userid, u.loginuid, u.displayname, u.firstname, u.lastname,
+                u.avatar, u.jobtitle, u.location, u.bio,
                 gp.githubid, gp.username, gp.avatar_url AS github_avatar_url,
                 gp.followers, gp.following, gp.public_repos
          FROM users u
-         LEFT JOIN profiles p ON p.userid = u.userid
          LEFT JOIN github_profiles gp ON gp.userid = u.userid
          WHERE u.userid = :userid'
     );
@@ -170,11 +169,11 @@ function compareUser($db, $userid) {
     return [
         'userid'      => (int) $row['userid'],
         'login'       => $row['loginuid'],
-        'displayName' => $row['display_name'],
+        'displayName' => $row['displayname'],
         'firstName'   => $row['firstname'],
         'lastName'    => $row['lastname'],
-        'avatarUrl'   => $row['github_avatar_url'] ?: $row['avatar_url'],
-        'jobTitle'    => $row['job_title'],
+        'avatarUrl'   => $row['github_avatar_url'] ?: $row['avatar'],
+        'jobTitle'    => $row['jobtitle'],
         'location'    => $row['location'],
         'bio'         => $row['bio'],
         'github'      => $row['githubid'] !== null ? $row['username'] : null,
