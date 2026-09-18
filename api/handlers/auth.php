@@ -59,28 +59,30 @@ function registerUser($db) {
         $db->beginTransaction();
 
         $stmt = $db->prepare(
-            'INSERT INTO users (loginuid, email, password_hash) VALUES (:login, :email, :hash)'
+            'INSERT INTO users (loginuid, email, password, firstname, lastname) VALUES (:login, :email, :password, :first, :last)'
         );
+
+        $firstName = isset($body['firstName']) ? clean($body['firstName']) : null;
+        $lastName  = isset($body['lastName']) ? clean($body['lastName']) : null;
+
         $stmt->execute([
             ':login' => $login,
             ':email' => $email,
-            ':hash'  => password_hash($password, PASSWORD_BCRYPT),
+            ':password'  => password($password, PASSWORD_BCRYPT),
+            ':first' => $firstName,
+            ':last' => $lastName,
         ]);
         $userid = (int) $db->lastInsertId();
 
         $profile = $db->prepare(
-            'INSERT INTO profiles (userid, firstname, lastname, display_name)
-             VALUES (:userid, :first, :last, :display)'
+            'INSERT INTO contacts (userid, displayname)
+             VALUES (:userid, :display)'
         );
-        $firstName = isset($body['firstName']) ? clean($body['firstName']) : null;
-        $lastName  = isset($body['lastName']) ? clean($body['lastName']) : null;
         $display   = $firstName !== null || $lastName !== null
             ? trim("{$firstName} {$lastName}")
             : $login;
         $profile->execute([
             ':userid'  => $userid,
-            ':first'   => $firstName,
-            ':last'    => $lastName,
             ':display' => $display,
         ]);
 
@@ -121,7 +123,7 @@ function loginUser($db) {
 
     $identifier = clean($identifier);
     $stmt = $db->prepare(
-        'SELECT userid, loginuid, email, password_hash
+        'SELECT userid, loginuid, email, password
          FROM users
          WHERE loginuid = :login OR email = :email
          LIMIT 1'
@@ -129,7 +131,7 @@ function loginUser($db) {
     $stmt->execute([':login' => $identifier, ':email' => $identifier]);
     $user = $stmt->fetch();
 
-    if (!$user || !password_verify((string) $password, $user['password_hash'])) {
+    if (!$user || !password_verify((string) $password, $user['password'])) {
         respond(401, ['error' => 'Invalid login or password']);
     }
 
@@ -167,10 +169,10 @@ function currentSession($db) {
     $userid = requireAuth();
 
     $stmt = $db->prepare(
-        'SELECT u.userid, u.loginuid, u.email, p.firstname, p.lastname,
-                p.display_name, p.avatar_url
+        'SELECT u.userid, u.loginuid, u.email, u.firstname, u.lastname,
+                c.displayname, u.avatar
          FROM users u
-         LEFT JOIN profiles p ON p.userid = u.userid
+         LEFT JOIN contacts c ON c.userid = u.userid
          WHERE u.userid = :userid'
     );
     $stmt->execute([':userid' => $userid]);
@@ -186,7 +188,7 @@ function currentSession($db) {
         'email'       => $user['email'],
         'firstName'   => $user['firstname'],
         'lastName'    => $user['lastname'],
-        'displayName' => $user['display_name'],
-        'avatarUrl'   => $user['avatar_url'],
+        'displayName' => $user['displayname'],
+        'avatarUrl'   => $user['avatar'],
     ]]);
 }
