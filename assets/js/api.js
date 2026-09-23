@@ -4,32 +4,26 @@
 (function () {
   const base = (function () {
     if (window.API_BASE_URL) return window.API_BASE_URL;
-    const stored = localStorage.getItem('api.baseUrl');
-    if (stored) return stored;
-
-    const hostname = location.hostname;
-    const isLocal = !hostname || hostname === 'localhost' || hostname === '127.0.0.1';
-    // When running locally on a static dev port, point to the live server
-    if (isLocal && location.port !== '' && location.port !== '80') {
-      return 'http://lamp.morning.codes/api/index.php';
-    }
-
     const path = location.pathname;
     const dir = path.endsWith('/') ? path : path.slice(0, path.lastIndexOf('/') + 1);
     return dir + 'api/index.php';
   })();
 
+  // Sessions belong to this API and this tab, not an arbitrary saved API URL.
+  const tokenKey = 'collab.token:' + base;
+  localStorage.removeItem('collab.token');
+
   const API = {
     base,
 
-    token: localStorage.getItem('collab.token') || null,
+    token: sessionStorage.getItem(tokenKey) || null,
 
     setToken(token) {
       this.token = token || null;
       if (token) {
-        localStorage.setItem('collab.token', token);
+        sessionStorage.setItem(tokenKey, token);
       } else {
-        localStorage.removeItem('collab.token');
+        sessionStorage.removeItem(tokenKey);
       }
     },
 
@@ -38,26 +32,40 @@
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       if (this.token) headers['Authorization'] = 'Bearer ' + this.token;
 
-      const res = await fetch(this.base + path, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-
-      const text = await res.text();
-      let payload = null;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
       try {
-        payload = text ? JSON.parse(text) : null;
-      } catch (e) {
-        payload = { error: text };
-      }
-
-      if (!res.ok) {
-        const err = new Error((payload && payload.error) || 'HTTP ' + res.status);
-        err.status = res.status;
+        if (location.protocol === 'https:' && /^http:\/\//i.test(this.base)) {
+          throw new Error('A secure API connection is required.');
+        }
+        const res = await fetch(this.base + path, {
+          method, headers, signal: controller.signal,
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+        const text = await res.text();
+        let payload;
+        try { payload = text ? JSON.parse(text) : null; }
+        catch (_) { throw new Error('The server returned an unexpected response. Please try again.'); }
+        if (!res.ok) {
+          const unavailable = res.status === 404 || res.status === 405;
+          const err = new Error(unavailable ? 'This action is not available on the server yet.' :
+            ((payload && payload.error) || 'Request failed (' + res.status + ').'));
+          err.status = res.status;
+          if (res.status === 401 && this.token && !/^\/auth\/(login|register|reset)/.test(path)) {
+            this.setToken(null);
+            window.dispatchEvent(new Event('session-expired'));
+          }
+          throw err;
+        }
+        if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+          throw new Error('The server returned an unexpected response. Please try again.');
+        }
+        return payload;
+      } catch (err) {
+        if (err.name === 'AbortError') throw new Error('The request timed out. Please try again.');
+        if (err instanceof TypeError) throw new Error('Could not reach the server. Check your connection and try again.');
         throw err;
-      }
-      return payload;
+      } finally { clearTimeout(timer); }
     },
 
     async data(method, path, body) {
@@ -158,8 +166,17 @@
     },
 
     /* contacts */
-    contacts() {
-      return this.data('GET', '/contacts');
+    contacts(params = {}) {
+      return this.request('GET', '/contacts' + this.query(params));
+    },
+    contact(contactid) {
+      return this.data('GET', '/contacts/' + encodeURIComponent(contactid));
+    },
+    createContact(fields) {
+      return this.data('POST', '/contacts', fields);
+    },
+    updateContact(contactid, fields) {
+      return this.data('PUT', '/contacts/' + encodeURIComponent(contactid), fields);
     },
     removeContact(contactid) {
       return this.data('DELETE', '/contacts/' + contactid);
@@ -208,6 +225,15 @@
     },
     adminUsers(params = {}) {
       return this.request('GET', '/admin/users' + this.query(params));
+    },
+    adminCreateUser(fields) {
+      return this.data('POST', '/admin/users', { ...fields, isAdmin: true });
+    },
+    adminContacts(params = {}) {
+      return this.request('GET', '/admin/contacts' + this.query(params));
+    },
+    adminPassword(userid, newPassword) {
+      return this.data('PUT', '/admin/users/' + encodeURIComponent(userid) + '/password', { newPassword });
     },
     adminDisable(userid) {
       return this.data('POST', '/admin/users/' + userid + '/disable');

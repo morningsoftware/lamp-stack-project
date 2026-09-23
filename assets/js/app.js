@@ -45,11 +45,13 @@
 
   function debounce(fn, wait) {
     let timer;
-    return function () {
+    function debounced() {
       const args = arguments;
       clearTimeout(timer);
       timer = setTimeout(() => fn.apply(this, args), wait);
-    };
+    }
+    debounced.cancel = () => clearTimeout(timer);
+    return debounced;
   }
 
   function langColor(lang) {
@@ -443,99 +445,125 @@
     });
   }
 
-  function openAuthModal(tab = 'login') {
-    const root = $('#modal-root');
-    root.innerHTML =
-      '<div class="modal" id="modal-backdrop"><div class="modal-card">' +
-      '<h2>collab.dev</h2><p class="sub">Sign in or register for an account to manage contacts.</p>' +
-      '<div class="tabs"><button class="tab" data-tab="login">sign in</button>' +
-      '<button class="tab" data-tab="register">create account</button></div>' +
-      '<form class="form-grid" id="auth-form"></form>' +
-      '<div class="demo-helper-box" id="auth-demo-helper"></div>' +
-      '</div></div>';
+  let modalOpener = null;
 
-    let mode = tab;
-    const form = $('#auth-form');
-    const helper = $('#auth-demo-helper');
+  function field(name, label, options = {}, value = '') {
+    const attrs = Object.entries(options).map(([key, val]) =>
+      val === false ? '' : ' ' + key + (val === true ? '' : '="' + escapeHtml(val) + '"')).join('');
+    return '<div class="field"><label for="field-' + name + '">' + escapeHtml(label) + '</label>' +
+      '<input class="input" id="field-' + name + '" name="' + name + '" value="' + escapeHtml(value) + '"' + attrs + '></div>';
+  }
 
-    const draw = () => {
-      $$('.tab', root).forEach((t) => t.classList.toggle('active', t.dataset.tab === mode));
-      if (mode === 'login') {
-        form.innerHTML =
-          '<div class="field"><label>login or email</label><input class="input" name="login" autocomplete="username" required></div>' +
-          '<div class="field"><label>password</label><input class="input" name="password" type="password" autocomplete="current-password" required></div>' +
-          '<button class="btn btn-primary" type="submit">sign in</button>';
-        helper.innerHTML =
-          '<b>Quick Demo Login:</b> ' +
-          '<button type="button" id="fill-user">User (testuser2)</button> · ' +
-          '<button type="button" id="fill-admin">Admin (admin)</button>';
-        $('#fill-user').addEventListener('click', () => {
-          form.login.value = 'testuser2';
-          form.password.value = 'password1!';
-        });
-        $('#fill-admin').addEventListener('click', () => {
-          form.login.value = 'admin';
-          form.password.value = 'ChangeMe123!';
-        });
-      } else {
-        form.innerHTML =
-          '<div class="field"><label>login</label><input class="input" name="login" autocomplete="username" required minlength="3"></div>' +
-          '<div class="field"><label>GitHub username</label><input class="input" name="githubUsername" placeholder="octocat" required></div>' +
-          '<div class="field"><label>email</label><input class="input" name="email" type="email" autocomplete="email" required></div>' +
-          '<div class="field"><label>first name</label><input class="input" name="firstName"></div>' +
-          '<div class="field"><label>last name</label><input class="input" name="lastName"></div>' +
-          '<div class="field"><label>password</label><input class="input" name="password" type="password" autocomplete="new-password" required minlength="8"></div>' +
-          '<button class="btn btn-primary" type="submit">create account</button>';
-        helper.innerHTML =
-          '<b>GTA Demo Quick Fill:</b> ' +
-          '<button type="button" id="fill-reg">Auto-fill Valid Account</button>';
-        $('#fill-reg').addEventListener('click', () => {
-          const rand = Math.floor(Math.random() * 9000 + 1000);
-          form.login.value = 'dev_' + rand;
-          form.githubUsername.value = 'torvalds';
-          form.email.value = 'dev_' + rand + '@example.com';
-          form.firstName.value = 'Developer';
-          form.lastName.value = 'Test';
-          form.password.value = 'Password123!';
-        });
-      }
-    };
+  function passwordFields() {
+    return field('newPassword', 'New password', {type:'password', required:true, minlength:8, maxlength:72, autocomplete:'new-password'}) +
+      field('confirmPassword', 'Confirm password', {type:'password', required:true, minlength:8, maxlength:72, autocomplete:'new-password'});
+  }
 
-    $$('.tab', root).forEach((t) =>
-      t.addEventListener('click', () => { mode = t.dataset.tab; draw(); }));
-    draw();
+  function checkPassword(data) {
+    if (data.newPassword !== data.confirmPassword) throw new Error('Passwords do not match.');
+    if (new TextEncoder().encode(data.newPassword).length > 72) throw new Error('Use a password of at most 72 bytes.');
+  }
 
-    form.addEventListener('submit', async (e) => {
+  function formDialog(title, description, fields, submitLabel, onSubmit, footer = '') {
+    const host = $('#modal-root');
+    if (!host.firstElementChild) modalOpener = document.activeElement;
+    document.body.style.overflow = 'hidden';
+    host.innerHTML = '<div class="modal" id="modal-backdrop"><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">' +
+      '<div class="spread"><h2 id="dialog-title">' + escapeHtml(title) + '</h2><button class="btn btn-icon btn-ghost" type="button" data-close aria-label="Close dialog">' + ICON.x + '</button></div>' +
+      '<p class="sub" id="dialog-description">' + escapeHtml(description) + '</p>' +
+      '<form id="dialog-form" class="form-grid">' + fields +
+      '<p class="form-error hidden" role="alert" id="dialog-error"></p>' +
+      '<div class="dialog-actions"><button class="btn" type="button" data-close>Cancel</button>' +
+      '<button class="btn btn-primary" type="submit">' + escapeHtml(submitLabel) + '</button></div></form>' + footer + '</section></div>';
+    const form = $('#dialog-form');
+    const error = $('#dialog-error');
+    $$('[data-close]',host).forEach(button => button.addEventListener('click', closeModal));
+    $('#modal-backdrop').addEventListener('click', e => { if (e.target.id === 'modal-backdrop') closeModal(); });
+    form.addEventListener('submit', async e => {
       e.preventDefault();
+      if (form.dataset.busy) return;
       const data = Object.fromEntries(new FormData(form));
-      const submit = $('button[type="submit"]', form);
-      submit.disabled = true;
-      submit.textContent = 'Please wait…';
+      form.dataset.busy = '1';
+      form.setAttribute('aria-busy','true');
+      const button = form.querySelector('[type=submit]');
+      button.textContent = 'Please wait…';
+      $$('button',host).forEach(b => b.disabled = true);
+      error.classList.add('hidden');
       try {
-        const result = mode === 'login'
-          ? await API.login(data.login, data.password)
-          : await API.register(data);
-        API.setToken(result.token);
-        state.user = await API.session();
-        closeModal();
-        renderProfileSlot();
-        toast(mode === 'login' ? 'Welcome back' : 'Account created and signed in!', 'success');
-        render();
+        await onSubmit(data, form);
+        delete form.dataset.busy;
+        if (form.isConnected) closeModal();
       } catch (err) {
-        toast(err.message, 'error');
-        submit.disabled = false;
-        submit.textContent = mode === 'login' ? 'Sign in' : 'Create account';
+        if (form.isConnected) {
+          error.textContent = err.message;
+          error.classList.remove('hidden');
+          error.tabIndex = -1;
+          error.focus();
+        }
+      } finally {
+        delete form.dataset.busy;
+        form.removeAttribute('aria-busy');
+        if (form.isConnected) {
+          $$('button',host).forEach(b => b.disabled = false);
+          button.textContent = submitLabel;
+        }
       }
     });
+    const first = host.querySelector('input:not([readonly]), select, textarea, [type=submit]');
+    if (first) first.focus();
+  }
 
-    $('#modal-backdrop').addEventListener('click', (e) => {
-      if (e.target.id === 'modal-backdrop') closeModal();
-    });
+  function openAuthModal(mode = 'login') {
+    const registering = mode === 'register';
+    const fields = field('login', registering ? 'Username' : 'Username or email', {required:true, maxlength:registering ? 50 : 255, minlength:registering ? 3 : 1, autocomplete:'username'}) +
+      (registering ? field('email','Email',{type:'email',required:true,maxlength:255,autocomplete:'email'}) +
+        '<div class="form-columns">' + field('firstName','First name',{maxlength:50,autocomplete:'given-name'}) + field('lastName','Last name',{maxlength:50,autocomplete:'family-name'}) + '</div>' +
+        field('githubUsername','GitHub username',{required:true,maxlength:39,placeholder:'Your GitHub username','aria-describedby':'github-help'}) +
+        '<p class="form-hint" id="github-help">Use a GitHub account you own that is not already linked to another account.</p>' + passwordFields() :
+        field('password','Password',{type:'password',required:true,autocomplete:'current-password'}));
+    formDialog(registering ? 'Create account' : 'Sign in', registering ? 'Keep your contacts together and connect with your team.' : 'Welcome back. Sign in to manage your contacts.', fields,
+      registering ? 'Create account' : 'Sign in', async data => {
+        let result;
+        if (registering) {
+          checkPassword(data);
+          const {newPassword, confirmPassword, ...profile} = data;
+          result = await API.register({...profile, password:newPassword});
+        } else result = await API.login(data.login,data.password);
+        if (!result?.token) throw new Error('Sign-in could not be completed. Please try again.');
+        API.setToken(result.token);
+        try { state.user = await API.session(); }
+        catch (err) {
+          API.setToken(null);
+          if (registering) throw new Error('Your account was created, but sign-in could not finish. Choose Sign in below to continue.');
+          throw err;
+        }
+        renderProfileSlot();
+        await render();
+        toast(registering ? 'Account created. You are signed in.' : 'Welcome back','success');
+      }, '<p class="auth-switch">' + (registering ? 'Already have an account?' : 'New here?') +
+      ' <button class="text-button" type="button" id="auth-switch">' + (registering ? 'Sign in' : 'Create account') + '</button></p>');
+    $('#auth-switch').addEventListener('click', () => openAuthModal(registering ? 'login' : 'register'));
   }
 
   function closeModal() {
+    if ($('#dialog-form')?.dataset.busy) return;
     $('#modal-root').innerHTML = '';
+    document.body.style.overflow = '';
+    if (modalOpener?.isConnected) modalOpener.focus();
+    modalOpener = null;
   }
+
+  document.addEventListener('keydown', e => {
+    const modal = $('#modal-root .modal-card');
+    if (!modal) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+    if (e.key !== 'Tab') return;
+    const focusable = $$('button:not([disabled]), input:not([disabled]), select, textarea, a[href]',modal).filter(el => el.getClientRects().length);
+    if (!focusable.length) { e.preventDefault(); return; }
+    const first = focusable[0], last = focusable[focusable.length-1];
+    if (e.shiftKey && (document.activeElement === first || !focusable.includes(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !focusable.includes(document.activeElement))) { e.preventDefault(); first.focus(); }
+  });
 
   /* ---------------- Routing ---------------- */
 
@@ -600,7 +628,7 @@
         (user.isAdmin ? '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' : '') +
         '</div>' +
         '<form class="search-form" id="search-form">' +
-        '<input class="search-input" id="search-input" type="search" placeholder="search contacts, name, @login, skill…" ' +
+        '<input class="search-input" id="search-input" type="search" aria-label="Search developer directory" placeholder="search developers by name, @login, skill…" ' +
         'autocomplete="off" value="' + escapeHtml(query.q || '') + '">' +
         '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
         '</form>' +
@@ -620,34 +648,25 @@
     root.innerHTML =
       '<div class="home"><div class="home-inner">' +
       '<h1 class="home-title">collab<span class="tick">.dev</span></h1>' +
-      '<p class="home-sub">Personal Contacts & Developer Network (LAMP Stack)</p>' +
+      '<p class="home-sub">Your contacts. Your next collaboration.</p>' +
       '<div class="home-hero-actions">' +
       '<button class="btn btn-primary" id="hero-reg-btn">create account</button>' +
       '<button class="btn" id="hero-login-btn">sign in</button>' +
       '</div>' +
       '<form class="search-form" id="search-form">' +
-      '<input class="search-input" id="search-input" type="search" placeholder="search name, @login, skill…" ' +
+      '<input class="search-input" id="search-input" type="search" aria-label="Search developer directory" placeholder="search name, @login, skill…" ' +
       'autocomplete="off" value="' + escapeHtml(query.q || '') + '">' +
       '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
       '</form>' +
-      '<div class="demo-helper-box">' +
-      '<b>GTA Lab Demonstration Shortcuts:</b> ' +
-      '<button type="button" id="hero-quick-admin">Sign In as Admin</button> · ' +
-      '<button type="button" id="hero-quick-user">Sign In as User</button> · ' +
-      '<button type="button" id="hero-quick-reg">Register New User</button>' +
-      '</div>' +
       '<div class="home-features">' +
-      '<div class="feature-card"><h3>📇 Personal Contacts</h3><p>Full CRUD contact records with instant search and filtering.</p></div>' +
-      '<div class="feature-card"><h3>🛡️ Role-Based Access</h3><p>Dedicated views for Users and Admins with account controls.</p></div>' +
-      '<div class="feature-card"><h3>⚡ LAMP Architecture</h3><p>Pure AJAX JSON client communicating with PHP and MySQL backend.</p></div>' +
+      '<div class="feature-card"><h3>📇 Personal Contacts</h3><p>Keep names, notes, and contact details in one place.</p></div>' +
+      '<div class="feature-card"><h3>🛡️ Your workspace</h3><p>A personal address book, with account management for your team.</p></div>' +
+      '<div class="feature-card"><h3>⚡ Discover people</h3><p>Find developers, explore shared skills, and stay in touch.</p></div>' +
       '</div>' +
       '</div></div>';
 
     $('#hero-reg-btn').addEventListener('click', () => openAuthModal('register'));
     $('#hero-login-btn').addEventListener('click', () => openAuthModal('login'));
-    $('#hero-quick-admin').addEventListener('click', () => { openAuthModal('login'); setTimeout(() => $('#fill-admin')?.click(), 50); });
-    $('#hero-quick-user').addEventListener('click', () => { openAuthModal('login'); setTimeout(() => $('#fill-user')?.click(), 50); });
-    $('#hero-quick-reg').addEventListener('click', () => { openAuthModal('register'); setTimeout(() => $('#fill-reg')?.click(), 50); });
 
     const form = $('#search-form');
     const input = $('#search-input');
@@ -708,7 +727,7 @@
       '<div class="container browse">' +
       '<div class="browse-head">' +
       '<form class="search-form" id="browse-search">' +
-      '<input class="search-input" id="browse-q" type="search" placeholder="search name, @login, skill…" value="' + escapeHtml(browseState.filters.q) + '">' +
+      '<input class="search-input" id="browse-q" type="search" aria-label="Search developer directory" placeholder="search name, @login, skill…" value="' + escapeHtml(browseState.filters.q) + '">' +
       '<button class="btn btn-primary" type="submit">' + ICON.search + '</button>' +
       '</form>' +
       '</div>' +
@@ -1044,111 +1063,112 @@
 
   /* ---------------- Contacts / Following ---------------- */
 
-  async function viewFollowing(root) {
-    if (!requireGate(root)) return;
-    root.innerHTML =
-      '<div class="container">' +
-      '<div class="spread"><h1 class="page-title">' + ICON.user + ' my contacts</h1>' +
-      '<div class="row" style="gap:8px">' +
-      '<a class="btn btn-sm btn-primary" href="#/browse">' + ICON.plus + ' add / discover</a>' +
-      '</div></div>' +
-      '<div class="mt" style="margin-bottom:12px">' +
-      '<input class="search-input" id="contact-filter" placeholder="search contacts by name, email, @login, skill…" style="width:100%">' +
-      '</div>' +
-      '<div class="spread browse-toolbar" style="margin-bottom:10px">' +
-      '<span class="results-count" id="contact-count"></span>' +
-      '</div>' +
-      '<div id="following-list" class="section" style="margin-top:0"></div></div>';
-
-    const list = $('#following-list');
-    const countEl = $('#contact-count');
-    const filterInput = $('#contact-filter');
-    list.innerHTML = skeleton(3);
-
-    try {
-      const allContacts = await API.contacts() || [];
-
-      const renderContacts = (filterText = '') => {
-        const query = filterText.toLowerCase().trim();
-        const filtered = allContacts.filter((c) => {
-          if (!query) return true;
-          const haystack = [
-            c.displayName, c.login, c.email, c.phone, c.description, c.jobTitle, c.location
-          ].filter(Boolean).join(' ').toLowerCase();
-          return haystack.includes(query);
-        });
-
-        countEl.textContent = filtered.length + ' contact' + (filtered.length === 1 ? '' : 's');
-
-        if (!filtered.length) {
-          if (query) {
-            list.innerHTML = emptyState(ICON.search, 'no matching contacts',
-              'no contacts matched "' + escapeHtml(filterText) + '"',
-              '<button class="btn btn-sm" id="clear-filter">clear filter</button>');
-            $('#clear-filter')?.addEventListener('click', () => {
-              filterInput.value = '';
-              renderContacts('');
-            });
-          } else {
-            list.innerHTML = emptyState(ICON.user, 'no contacts saved yet',
-              'browse developers in the directory and click follow to add them to your contacts list.',
-              '<a class="btn btn-primary" href="#/browse">browse directory</a>');
-          }
-          return;
-        }
-
-        list.innerHTML = '<div class="stack">' + filtered.map((c) =>
-          '<div class="contact-row" style="background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:flex;align-items:center;gap:14px">' +
-          avatarHtml(c, 'sm') +
-          '<div class="contact-main" style="flex:1;min-width:0">' +
-          '<div class="row" style="gap:8px">' +
-          '<a class="contact-name" style="font-weight:600;font-size:15px" href="' + (c.userid ? '#/dev/' + c.userid : '#') + '">' +
-          escapeHtml(c.displayName || c.login || 'Contact') + '</a>' +
-          (c.login ? '<span class="faint mono" style="font-size:12px">@' + escapeHtml(c.login) + '</span>' : '') +
-          '</div>' +
-          '<div class="contact-sub faint" style="font-size:12px;margin-top:2px">' +
-          (c.jobTitle ? '<span style="color:var(--muted)">' + escapeHtml(c.jobTitle) + '</span>' : '') +
-          (c.location ? ' · ' + escapeHtml(c.location) : '') +
-          (c.email ? ' · <span class="mono">' + escapeHtml(c.email) + '</span>' : '') +
-          (c.phone ? ' · <span class="mono">' + escapeHtml(c.phone) + '</span>' : '') +
-          '</div>' +
-          (c.description ? '<div class="muted" style="font-size:12px;margin-top:4px">' + escapeHtml(c.description) + '</div>' : '') +
-          '</div>' +
-          '<div class="contact-actions" style="display:flex;gap:8px">' +
-          (c.userid ? '<button class="btn btn-sm btn-ghost" data-message="' + c.userid + '" title="message">' + ICON.mail + '</button>' : '') +
-          '<button class="btn btn-sm btn-danger" data-unfollow="' + c.userid + '" data-contact="' + c.contactid + '" title="delete contact">delete</button>' +
-          '</div></div>').join('') + '</div>';
-
-        wireDevActions(list);
-        $$('[data-unfollow]', list).forEach((btn) =>
-          btn.addEventListener('click', async () => {
-            if (!confirm('Remove this contact from your list?')) return;
-            const userid = btn.dataset.unfollow;
-            const contactid = btn.dataset.contact;
-            btn.disabled = true;
-            try {
-              if (userid) await API.unfollow(userid);
-              else if (contactid) await API.removeContact(contactid);
-              toast('contact removed', 'success');
-              viewFollowing(root);
-            } catch (err) {
-              toast(err.message, 'error');
-              btn.disabled = false;
-            }
-          }));
-      };
-
-      renderContacts('');
-      filterInput.addEventListener('input', debounce((e) => {
-        renderContacts(e.target.value);
-      }, 150));
-
-    } catch (err) {
-      list.innerHTML = emptyState('!', 'could not load contacts', err.message);
-    }
+  function pagination(host, meta, onPage) {
+    if (!meta || !Number.isFinite(Number(meta.total)) || !Number(meta.limit)) return;
+    const page = Math.max(1,Number(meta.page) || 1);
+    const pages = Math.max(1,Math.ceil(Number(meta.total)/Number(meta.limit)));
+    if (pages <= 1) return;
+    const nav = document.createElement('nav');
+    nav.className = 'pager';
+    nav.setAttribute('aria-label','Result pages');
+    nav.innerHTML = '<button class="btn btn-sm" data-page="' + (page-1) + '"' + (page <= 1 ? ' disabled' : '') + '>Previous</button>' +
+      '<span>Page ' + page + ' of ' + pages + '</span><button class="btn btn-sm" data-page="' + (page+1) + '"' + (page >= pages ? ' disabled' : '') + '>Next</button>';
+    $$('button',nav).forEach(button => button.addEventListener('click',() => onPage(Number(button.dataset.page))));
+    host.appendChild(nav);
   }
 
-  /* ---------------- Profile ---------------- */
+  function contactName(contact) {
+    return [contact.firstName ?? contact.firstname,contact.lastName ?? contact.lastname].filter(Boolean).join(' ').trim() || contact.displayName || contact.email || 'Unnamed contact';
+  }
+
+  async function viewFollowing(root, query = {}) {
+    if (!requireGate(root)) return;
+    root.innerHTML = '<div class="container"><div class="spread wrap"><div><h1 class="page-title">My contacts</h1><p class="muted">The people you want to keep close.</p></div>' +
+      '<div class="row wrap"><a class="btn" href="#/browse">Discover developers</a><button class="btn btn-primary" id="add-contact">' + ICON.plus + ' New contact</button></div></div>' +
+      '<form class="contact-search" id="contact-search"><label class="sr-only" for="contact-filter">Search contacts</label>' +
+      '<input class="input" type="search" id="contact-filter" placeholder="Search name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
+      '<button class="btn" type="submit">Search</button></form><div id="contact-results" aria-live="polite" class="section"></div></div>';
+    const results = $('#contact-results');
+    const search = $('#contact-filter');
+    let page = 1, generation = 0;
+    const load = async (nextPage = 1) => {
+      page = nextPage;
+      const request = ++generation;
+      const q = search.value.trim();
+      results.innerHTML = skeleton(3);
+      results.setAttribute('aria-busy','true');
+      try {
+        const payload = await API.contacts({q,page,limit:20});
+        if (!results.isConnected || request !== generation) return;
+        const contacts = payload.data || [];
+        if (!Array.isArray(contacts)) throw new Error('The contact list could not be loaded.');
+        if (contacts.length > 20) throw new Error('The server could not return a limited set of contacts. Please try again later.');
+        if (!contacts.length && page > 1) return load(page-1);
+        results.innerHTML = '<p class="results-count">' + (payload.meta?.total ?? contacts.length) + ' contact' + ((payload.meta?.total ?? contacts.length) === 1 ? '' : 's') + '</p>';
+        if (!contacts.length) {
+          results.innerHTML += emptyState(ICON.user, q ? 'No matching contacts' : 'Your address book starts here',q ? 'Try another name, email, phone number or note.' : 'Add your first contact or discover developers to follow.');
+        } else {
+          const list = document.createElement('div');
+          list.className = 'stack';
+          list.innerHTML = contacts.map(c => '<article class="contact-row"><div class="contact-main"><h2 class="contact-name">' + escapeHtml(contactName(c)) + '</h2>' +
+            (c.login ? '<p class="faint mono">@' + escapeHtml(c.login) + '</p>' : '') +
+            '<p class="contact-details">' + escapeHtml([c.email,c.phone].filter(Boolean).join(' · ')) + '</p>' +
+            (c.description ? '<p class="muted contact-notes">' + escapeHtml(c.description) + '</p>' : '') + '</div><div class="contact-actions">' +
+            '<button class="btn btn-sm" data-edit="' + Number(c.contactid) + '" aria-label="Edit ' + escapeHtml(contactName(c)) + '">Edit</button>' +
+            '<button class="btn btn-sm btn-danger" data-delete="' + Number(c.contactid) + '" aria-label="Delete ' + escapeHtml(contactName(c)) + '">Delete</button></div></article>').join('');
+          results.appendChild(list);
+          $$('[data-edit]',list).forEach(button => button.addEventListener('click',async () => {
+            button.disabled = true;
+            try {
+              const contact = await API.contact(button.dataset.edit);
+              if (results.isConnected) editContact(contact, () => load(page));
+            } catch (err) { toast(err.message,'error'); }
+            finally { button.disabled = false; }
+          }));
+          $$('[data-delete]',list).forEach(button => button.addEventListener('click',() => {
+            const contact = contacts.find(c => String(c.contactid) === button.dataset.delete);
+            formDialog('Delete contact?', 'Remove ' + contactName(contact) + ' from your address book? This cannot be undone.', '', 'Delete contact', async () => {
+              await API.removeContact(contact.contactid);
+              toast('Contact deleted','success');
+              if (results.isConnected) await load(page);
+            });
+          }));
+        }
+        pagination(results,payload.meta,load);
+      } catch (err) {
+        if (!results.isConnected || request !== generation) return;
+        results.innerHTML = emptyState('!','Could not load contacts',err.message,'<button class="btn" id="retry-contacts">Retry</button>');
+        $('#retry-contacts',results).addEventListener('click',() => load(page));
+      } finally {
+        if (request === generation) results.removeAttribute('aria-busy');
+      }
+    };
+    $('#add-contact').addEventListener('click',() => editContact(null, () => { search.value = ''; return load(1); }));
+    const schedule = debounce(() => { if (results.isConnected) load(1); },300);
+    search.addEventListener('input',schedule);
+    $('#contact-search').addEventListener('submit',e => { e.preventDefault(); schedule.cancel(); load(1); });
+    await load();
+  }
+
+  function editContact(contact, onSaved) {
+    const c = contact || {};
+    const fields = (contact ? field('contactid','Contact ID',{readonly:true},c.contactid) : '') +
+      '<div class="form-columns">' + field('firstName','First name',{maxlength:50,autocomplete:'given-name'},c.firstName ?? c.firstname) +
+      field('lastName','Last name',{maxlength:50,autocomplete:'family-name'},c.lastName ?? c.lastname) + '</div>' +
+      field('email','Email',{type:'email',maxlength:100,autocomplete:'email'},c.email) +
+      field('phone','Phone',{type:'tel',maxlength:10,autocomplete:'tel','aria-describedby':'phone-help'},c.phone) +
+      '<p class="form-hint" id="phone-help">Up to 10 characters.</p>' +
+      '<div class="field"><label for="contact-notes">Notes</label><textarea id="contact-notes" class="textarea" name="description" maxlength="100">' + escapeHtml(c.description || '') + '</textarea></div>';
+    formDialog(contact ? 'Edit contact' : 'New contact','Save the details that help you stay in touch.',fields,'Save contact',async data => {
+      const {contactid,...fields} = data;
+      Object.keys(fields).forEach(key => fields[key] = fields[key].trim());
+      if (!fields.firstName && !fields.lastName && !fields.email) throw new Error('Enter a name or an email address.');
+      if (contact) await API.updateContact(c.contactid,fields);
+      else await API.createContact(fields);
+      toast(contact ? 'Contact updated' : 'Contact created','success');
+      await onSaved();
+    });
+  }
 
   async function resolveByLogin(root, login) {
     if (!requireGate(root)) return;
@@ -2181,6 +2201,7 @@
       '<div class="tabs settings-tabs">' +
       '<button class="tab' + (tab === 'overview' ? ' active' : '') + '" data-tab="overview">overview</button>' +
       '<button class="tab' + (tab === 'users' ? ' active' : '') + '" data-tab="users">users</button>' +
+      '<button class="tab' + (tab === 'contacts' ? ' active' : '') + '" data-tab="contacts">contacts</button>' +
       '</div>' +
       '<div id="admin-panel" class="section"></div></div>';
 
@@ -2190,7 +2211,8 @@
     const panel = $('#admin-panel');
     panel.innerHTML = skeleton(3);
 
-    if (tab === 'users') await adminUsers(panel, query);
+    if (tab === 'contacts') await adminContactList(panel, query);
+    else if (tab === 'users') await adminUsers(panel, query);
     else await adminOverview(panel);
   }
 
@@ -2239,9 +2261,10 @@
     const page = Math.max(1, parseInt(query.page || '1', 10) || 1);
 
     panel.innerHTML =
-      '<form class="row" id="admin-search">' +
-      '<input class="input flex1" id="admin-q" placeholder="search login, name or email" value="' + escapeHtml(q) + '">' +
-      '<select class="select" id="admin-status">' +
+      '<div class="spread wrap"><h2 class="section-title">Manage users</h2><button class="btn btn-primary" id="create-admin">New administrator</button></div>' +
+      '<form class="row wrap mt" id="admin-search">' +
+      '<input class="input flex1" id="admin-q" aria-label="Search users" placeholder="search login, name or email" value="' + escapeHtml(q) + '">' +
+      '<select class="select" id="admin-status" aria-label="Account status">' +
       '<option value="">all</option>' +
       '<option value="active"' + (status === 'active' ? ' selected' : '') + '>active</option>' +
       '<option value="inactive"' + (status === 'inactive' ? ' selected' : '') + '>disabled</option>' +
@@ -2251,6 +2274,7 @@
       '</form>' +
       '<div id="admin-users" class="section"></div>';
 
+    $('#create-admin').addEventListener('click', () => createAdmin(() => panel.isConnected && adminUsers(panel,query)));
     const go = (overrides) => {
       const params = new URLSearchParams({ tab: 'users' });
       const next = Object.assign({ q, status, page: '1' }, overrides);
@@ -2268,13 +2292,14 @@
     host.innerHTML = skeleton(4);
     try {
       const payload = await API.adminUsers({ q, status, page, limit: 20 });
+      if (!host.isConnected) return;
       const users = payload.data || [];
       const meta = payload.meta || { total: users.length, page: 1, limit: 20 };
       const pages = Math.max(1, Math.ceil(meta.total / meta.limit));
 
       host.innerHTML =
         '<div class="results-count">' + meta.total + ' users</div>' +
-        '<table class="data-table"><thead><tr>' +
+        '<div class="table-scroll" tabindex="0" role="region" aria-label="Users"><table class="data-table"><thead><tr>' +
         '<th>login</th><th>name</th><th>email</th><th>github</th><th>status</th><th>actions</th></tr></thead><tbody>' +
         users.map((u) =>
           '<tr' + (u.isActive ? '' : ' class="row-disabled"') + '>' +
@@ -2285,27 +2310,44 @@
           '<td>' + (u.isActive ? 'active' : 'disabled') + '</td>' +
           '<td class="row-actions">' +
           '<a class="btn btn-sm btn-ghost" href="#/dev/' + u.userid + '">view</a>' +
-          '<button class="btn btn-sm" data-reset="' + u.userid + '">reset pw</button>' +
-          (u.isAdmin ? '' :
+          '<a class="btn btn-sm" href="#/admin?tab=contacts&amp;userid=' + u.userid + '">contacts</a>' +
+          '<button class="btn btn-sm" data-password="' + u.userid + '">change password</button>' +
+          '<button class="btn btn-sm" data-reset="' + u.userid + '">reset link</button>' +
+          (Number(u.userid) === Number(state.user.userid) ? '<span class="faint">current account</span>' :
             (u.isActive
               ? '<button class="btn btn-sm btn-danger" data-disable="' + u.userid + '">disable</button>'
               : '<button class="btn btn-sm" data-enable="' + u.userid + '">enable</button>')) +
           '</td></tr>').join('') +
-        '</tbody></table>' +
+        '</tbody></table></div>' +
         (pages > 1 ? '<div class="pager">' +
           '<button class="btn btn-sm" id="prev-page"' + (page <= 1 ? ' disabled' : '') + '>' + ICON.back + ' prev</button>' +
           '<span class="mono faint">page ' + page + ' / ' + pages + '</span>' +
           '<button class="btn btn-sm" id="next-page"' + (page >= pages ? ' disabled' : '') + '>next</button>' +
           '</div>' : '');
 
-      $$('[data-disable]', host).forEach((btn) => btn.addEventListener('click', async () => {
-        if (!confirm('Disable this account and sign them out?')) return;
-        try { await API.adminDisable(btn.dataset.disable); toast('account disabled', 'success'); viewAdmin($('#app'), { tab: 'users', q, status, page: String(page) }); }
-        catch (err) { toast(err.message, 'error'); }
+      if (!users.length) host.innerHTML = emptyState(ICON.search, 'No matching users', 'Try a different search or account status.');
+      $$('[data-disable], [data-enable]', host).forEach(btn => btn.addEventListener('click', () => {
+        const id = btn.dataset.disable || btn.dataset.enable;
+        const disabling = !!btn.dataset.disable;
+        const user = users.find(u => String(u.userid) === id);
+        formDialog(disabling ? 'Disable account?' : 'Enable account?',
+          (disabling ? 'Sign out and suspend @' : 'Restore access for @') + user.login + '? The account and its contacts will be kept.', '',
+          disabling ? 'Disable account' : 'Enable account', async () => {
+            if (disabling) await API.adminDisable(id); else await API.adminEnable(id);
+            toast(disabling ? 'Account disabled' : 'Account enabled','success');
+            if (panel.isConnected) await adminUsers(panel,query);
+          });
       }));
-      $$('[data-enable]', host).forEach((btn) => btn.addEventListener('click', async () => {
-        try { await API.adminEnable(btn.dataset.enable); toast('account enabled', 'success'); viewAdmin($('#app'), { tab: 'users', q, status, page: String(page) }); }
-        catch (err) { toast(err.message, 'error'); }
+      $$('[data-password]', host).forEach(btn => btn.addEventListener('click', () => {
+        const user = users.find(u => String(u.userid) === btn.dataset.password);
+        formDialog('Change password','Set a new password for @' + user.login + '. Existing sessions will be signed out.',passwordFields(),'Change password',async data => {
+          checkPassword(data);
+          await API.adminPassword(user.userid,data.newPassword);
+          toast('Password changed','success');
+          if (Number(user.userid) === Number(state.user.userid)) {
+            API.setToken(null); state.user = null; renderProfileSlot(); location.hash = '#/'; await render();
+          }
+        });
       }));
       $$('[data-reset]', host).forEach((btn) => btn.addEventListener('click', () => showResetLink(btn.dataset.reset)));
 
@@ -2318,27 +2360,71 @@
     }
   }
 
-  async function showResetLink(userid) {
-    try {
-      const result = await API.adminReset(userid);
-      const root = $('#modal-root');
-      root.innerHTML =
-        '<div class="modal" id="modal-backdrop"><div class="modal-card">' +
-        '<h2>password reset link</h2><p class="sub">share this one-time link with the user. it expires in 60 minutes.</p>' +
-        '<input class="input" id="reset-url" readonly value="' + escapeHtml(result.resetUrl) + '">' +
-        '<div class="row mt"><button class="btn btn-primary flex1" id="copy-reset">copy link</button>' +
-        '<button class="btn btn-ghost" id="cancel">close</button></div></div></div>';
-      $('#copy-reset').addEventListener('click', async () => {
-        const input = $('#reset-url');
-        input.select();
-        try { await navigator.clipboard.writeText(input.value); toast('link copied', 'success'); }
-        catch (e) { toast('copy failed — select and copy manually', 'info'); }
-      });
-      $('#cancel').addEventListener('click', closeModal);
-      $('#modal-backdrop').addEventListener('click', (e) => { if (e.target.id === 'modal-backdrop') closeModal(); });
-    } catch (err) {
-      toast(err.message, 'error');
+  function createAdmin(onSaved) {
+    const fields = field('login','Username',{required:true,minlength:3,maxlength:50,autocomplete:'off'}) +
+      field('email','Email',{type:'email',required:true,maxlength:255,autocomplete:'off'}) +
+      field('firstName','First name',{required:true,maxlength:50}) + field('lastName','Last name',{required:true,maxlength:50}) + passwordFields();
+    formDialog('New administrator','This account will be able to manage users and view their contacts.',fields,'Create administrator',async data => {
+      checkPassword(data);
+      const {newPassword,confirmPassword,...profile} = data;
+      await API.adminCreateUser({...profile,password:newPassword});
+      toast('Administrator created','success');
+      await onSaved();
+    });
+  }
+
+  async function adminContactList(panel, query) {
+    const userid = /^\d+$/.test(query.userid || '') ? query.userid : '';
+    panel.innerHTML = '<h2 class="section-title">' + (userid ? 'Contacts belonging to user #' + userid : 'All users’ contacts') + '</h2>' +
+      '<form class="contact-search" id="admin-contact-search">' +
+      '<input class="input" type="search" name="q" aria-label="Search all contacts" placeholder="Search contact name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
+      '<button class="btn" type="submit">Search</button></form>' +
+      (userid ? '<a class="text-button" href="#/admin?tab=contacts">Show all users’ contacts</a>' : '') + '<div id="admin-contact-results" aria-live="polite" class="section"></div>';
+    const form = $('#admin-contact-search');
+    const results = $('#admin-contact-results');
+    let generation = 0;
+    async function load(page = 1) {
+      const current = ++generation;
+      results.innerHTML = skeleton(3);
+      try {
+        const payload = await API.adminContacts({q:form.elements.q.value.trim(),userid,page,limit:20});
+        if (!results.isConnected || current !== generation) return;
+        const contacts = payload.data || [];
+        if (!Array.isArray(contacts) || contacts.length > 20) throw new Error('The contact list could not be loaded.');
+        if (!contacts.length) { results.innerHTML = emptyState(ICON.search,'No matching contacts','Try a different search.'); return; }
+        results.innerHTML = '<div class="table-scroll" tabindex="0" role="region" aria-label="All contacts"><table class="data-table"><thead><tr><th>Owner</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th></tr></thead><tbody>' +
+          contacts.map(c => '<tr><td>' + escapeHtml(c.ownerLogin || c.ownerName || ('User #' + c.ownerId)) + '</td><td>' + escapeHtml(contactName(c)) + '</td><td>' + escapeHtml(c.email) + '</td><td>' + escapeHtml(c.phone) + '</td><td>' + escapeHtml(c.description) + '</td></tr>').join('') + '</tbody></table></div>';
+        pagination(results,payload.meta,load);
+      } catch (err) {
+        if (!results.isConnected || current !== generation) return;
+        results.innerHTML = emptyState('!','Could not load contacts',err.message,'<button class="btn" id="retry-admin-contacts">Retry</button>');
+        $('#retry-admin-contacts',results).addEventListener('click',() => load(page));
+      }
     }
+    const schedule = debounce(() => { if (results.isConnected) load(1); },300);
+    form.addEventListener('submit',e => { e.preventDefault(); schedule.cancel(); load(1); });
+    form.elements.q.addEventListener('input',schedule);
+    await load();
+  }
+
+  async function showResetLink(userid) {
+    formDialog('Create password reset link','Generate a single-use link for this user. The link expires in 60 minutes.','','Generate link',async () => {
+      const result = await API.adminReset(userid);
+      const source = new URL(result.resetUrl,location.href);
+      const token = new URLSearchParams(source.hash.split('?')[1] || '').get('token');
+      if (!token) throw new Error('The server did not return a valid reset link.');
+      const url = location.origin + location.pathname + '#/reset?token=' + encodeURIComponent(token);
+      // Replace the generation form after it completes so errors remain visible.
+      setTimeout(() => {
+        formDialog('Password reset link','Give this link only to the account owner. It expires in 60 minutes.',
+          field('resetUrl','Reset link',{readonly:true},url),'Done',async () => {},
+          '<button class="btn mt" type="button" id="copy-reset">Copy link</button>');
+        $('#copy-reset').addEventListener('click',async () => {
+          try { await navigator.clipboard.writeText(url); toast('Link copied','success'); }
+          catch (_) { $('#field-resetUrl').select(); toast('Select and copy the link','info'); }
+        });
+      },0);
+    });
   }
 
   /* ---------------- Password reset ---------------- */
@@ -2350,8 +2436,8 @@
       '<h1 class="home-title">set a new password</h1>' +
       '<p class="home-sub" id="reset-msg">checking your link…</p>' +
       '<form class="form-grid" id="reset-form" style="display:none">' +
-      '<div class="field"><label>new password</label><input class="input" name="newPassword" type="password" minlength="8" required></div>' +
-      '<div class="field"><label>confirm password</label><input class="input" name="confirm" type="password" minlength="8" required></div>' +
+      '<div class="field"><label for="reset-new">new password</label><input id="reset-new" class="input" name="newPassword" type="password" minlength="8" required></div>' +
+      '<div class="field"><label for="reset-confirm">confirm password</label><input id="reset-confirm" class="input" name="confirm" type="password" minlength="8" required></div>' +
       '<button class="btn btn-primary" type="submit">update password</button>' +
       '</form></div></div>';
 
@@ -2374,11 +2460,19 @@
       const data = Object.fromEntries(new FormData(e.target));
       if (data.newPassword !== data.confirm) return toast('passwords do not match', 'error');
       try {
+        const button = e.target.querySelector('[type=submit]');
+        if (button.disabled) return;
+        checkPassword({newPassword:data.newPassword,confirmPassword:data.confirm});
+        button.disabled = true;
         await API.resetPassword(token, data.newPassword);
-        toast('password updated — you can sign in', 'success');
+        API.setToken(null); state.user = null; renderProfileSlot();
+        toast('Password updated. Sign in with your new password.', 'success');
         location.hash = '#/';
       } catch (err) {
         toast(err.message, 'error');
+      } finally {
+        const button = e.target.querySelector('[type=submit]');
+        if (button) button.disabled = false;
       }
     });
   }
@@ -2412,7 +2506,12 @@
 
   /* ---------------- Boot ---------------- */
 
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', () => { closeModal(); render(); });
+  window.addEventListener('session-expired', () => {
+    state.user = null; renderProfileSlot();
+    toast('Your session ended. Please sign in again.', 'error');
+    render();
+  });
 
   (async function init() {
     initTheme();

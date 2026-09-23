@@ -1,19 +1,8 @@
-#!/bin/bash
-# ============================================================
-#  serve.sh — Local development server for collab.dev
-# ============================================================
-PORT=8000
-echo "============================================================"
-echo "🚀 Starting collab.dev frontend server on http://localhost:${PORT}"
-echo "📡 Connected to live backend at: http://lamp.morning.codes"
-echo "============================================================"
-echo "Press Ctrl+C to stop."
-echo ""
-
-if command -v python3 &>/dev/null; then
-  python3 -m http.server $PORT
-elif command -v php &>/dev/null; then
-  php -S localhost:$PORT
-else
-  npx -y serve -l $PORT .
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js 20 or newer is required to run the local frontend server."
+  exit 1
 fi
+exec node scripts/dev-server.mjs "$@"
