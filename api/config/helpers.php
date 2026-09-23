@@ -247,7 +247,11 @@ function optionalAuth() {
 
     require_once __DIR__ . '/db.php';
     $stmt = getDB()->prepare(
-        'SELECT userid FROM sessions WHERE token_hash = :hash AND expires_at > NOW() LIMIT 1'
+        'SELECT s.userid
+         FROM sessions s
+         JOIN users u ON u.userid = s.userid
+         WHERE s.token_hash = :hash AND s.expires_at > NOW() AND u.isactive = 1
+         LIMIT 1'
     );
     $stmt->execute([':hash' => hashToken($token)]);
     $row = $stmt->fetch();
@@ -289,6 +293,25 @@ function requireOwnership($userid) {
 }
 
 /**
+ * Requires an authenticated user with the admin flag set.
+ *
+ * @return int The authenticated admin's user id
+ */
+function requireAdmin() {
+    $userId = requireAuth();
+
+    require_once __DIR__ . '/db.php';
+    $stmt = getDB()->prepare('SELECT isadmin, isactive FROM users WHERE userid = :userid LIMIT 1');
+    $stmt->execute([':userid' => $userId]);
+    $row = $stmt->fetch();
+
+    if (!$row || (int) $row['isadmin'] !== 1 || (int) $row['isactive'] !== 1) {
+        respond(403, ['error' => 'Admin access required']);
+    }
+    return $userId;
+}
+
+/**
  * Creates a new session for the user and returns the plaintext token.
  * Only the token hash is stored.
  *
@@ -326,4 +349,19 @@ function publicUser($row) {
         'firstName' => $row['firstname'] ?? null,
         'lastName'  => $row['lastname'] ?? null,
     ];
+}
+
+/**
+ * Returns the configured public base URL of the front-end.
+ *
+ * @return string
+ */
+function appBaseUrl() {
+    $base = getenv('APP_BASE_URL') ?: '';
+    if ($base === '') {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $base   = $scheme . '://' . $host;
+    }
+    return rtrim($base, '/');
 }

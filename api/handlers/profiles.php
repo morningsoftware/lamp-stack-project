@@ -1,6 +1,7 @@
 <?php
 // ============================================================
-//  api/handlers/profiles.php — Public profiles, skills & social links
+//  api/handlers/profiles.php — Profiles, discovery, skills,
+//  social links and follows
 // ============================================================
 
 require_once __DIR__ . '/../config/db.php';
@@ -18,6 +19,16 @@ if ($userid === null) {
     listProfiles($db);
 }
 
+if ($userid === 'facets') {
+    requireMethod('GET');
+    profileFacets($db);
+}
+
+if ($userid === 'suggestions') {
+    requireMethod('GET');
+    suggestDevelopers($db);
+}
+
 // /profiles/{userid}/skills
 if ($sub === 'skills') {
     requireMethod('GET', 'PUT');
@@ -31,6 +42,19 @@ if ($sub === 'skills') {
 // /profiles/{userid}/social_links[/{linkid}]
 if ($sub === 'social_links') {
     handleSocialLinks($db, requireId($userid, 'user id'), $subId);
+}
+
+// /profiles/{userid}/follow
+if ($sub === 'follow') {
+    $targetId = requireId($userid, 'user id');
+    if (requestMethod() === 'POST') {
+        followDeveloper($db, $targetId);
+    }
+    if (requestMethod() === 'DELETE') {
+        unfollowDeveloper($db, $targetId);
+    }
+    header('Allow: POST, DELETE');
+    respond(405, ['error' => 'Method not allowed']);
 }
 
 if ($sub !== null) {
@@ -52,71 +76,366 @@ switch (requestMethod()) {
 }
 
 /**
- * Lists public profiles, optionally filtered with ?q= search term.
+ * Splits a comma-separated query value into a unique list.
+ *
+ * @param mixed $value
+ * @return string[]
+ */
+function splitCsv($value) {
+    $parts = array_map(function ($part) {
+        return trim($part);
+    }, explode(',', (string) $value));
+    $parts = array_filter($parts, function ($part) {
+        return $part !== '';
+    });
+    return array_values(array_unique($parts));
+}
+
+/**
+ * Lists and filters public profiles for the discovery directory.
  *
  * @param PDO $db
  */
 function listProfiles($db) {
-    $q     = isset($_GET['q']) ? clean($_GET['q']) : '';
-    $skill = isset($_GET['skill']) ? clean($_GET['skill']) : '';
+    $q         = isset($_GET['q']) ? clean($_GET['q']) : '';
+    $skills    = splitCsv($_GET['skill'] ?? '');
+    $skillMode = (($_GET['skillMode'] ?? 'any') === 'all') ? 'all' : 'any';
+    $languages = splitCsv($_GET['language'] ?? '');
+    $location  = isset($_GET['location']) ? clean($_GET['location']) : '';
+    $jobtitle  = isset($_GET['jobtitle']) ? clean($_GET['jobtitle']) : '';
+    $minStars  = isset($_GET['minStars']) ? max(0, (int) $_GET['minStars']) : 0;
+    $hasGithub = !empty($_GET['hasGithub']);
+    $following = !empty($_GET['following']);
+    $sort      = isset($_GET['sort']) ? clean($_GET['sort']) : 'name';
+    $limit     = isset($_GET['limit']) ? (int) $_GET['limit'] : 24;
+    $limit     = max(1, min(100, $limit));
+    $offset    = isset($_GET['offset']) ? max(0, (int) $_GET['offset']) : 0;
 
-    $sql = 'SELECT u.userid, u.loginuid, p.firstname, p.lastname, p.display_name,
-                   p.bio, p.location, p.job_title, p.avatar_url, p.resume_url,
-                   gp.username AS github_username, gp.avatar_url AS github_avatar_url,
-                   gp.followers, gp.following,
-                   gp.public_repos,
+    $me = requireAuth();
+
+    $sql = 'SELECT u.userid, u.loginuid, u.firstname, u.lastname, u.displayname,
+                   u.bio, u.location, u.jobtitle, u.avatar, u.resume,
+                   gp.githubid, gp.username AS github_username,
+                   gp.avatar_url AS github_avatar_url,
+                   gp.followers, gp.following, gp.public_repos,
                    (SELECT COALESCE(SUM(gr.stars), 0) FROM github_repositories gr
                      WHERE gr.githubid = gp.githubid) AS total_stars
             FROM users u
-            JOIN profiles p ON p.userid = u.userid
             LEFT JOIN github_profiles gp ON gp.userid = u.userid';
+
     $where  = [];
     $params = [];
 
-    if ($skill !== '') {
-        $sql .= ' JOIN user_skills usf ON usf.userid = u.userid
-                  JOIN skills sf ON sf.skillid = usf.skillid';
-        $where[] = 'sf.name = :skill';
-        $params[':skill'] = $skill;
-    }
+    // A user's own profile never appears in directory/search results.
+    $where[] = 'u.userid <> :exclude_me';
+    $params[':exclude_me'] = $me;
 
     if ($q !== '') {
         $like = '%' . $q . '%';
-        $where[] = '(p.display_name LIKE :q1 OR p.firstname LIKE :q2
-                     OR p.lastname LIKE :q3 OR p.bio LIKE :q4 OR u.loginuid LIKE :q5)';
-        $params += [':q1' => $like, ':q2' => $like, ':q3' => $like, ':q4' => $like, ':q5' => $like];
+        $where[] = '(u.displayname LIKE :q1 OR u.firstname LIKE :q2
+                     OR u.lastname LIKE :q3 OR u.bio LIKE :q4 OR u.loginuid LIKE :q5
+                     OR EXISTS (SELECT 1 FROM user_skills us
+                                JOIN skills s ON s.skillid = us.skillid
+                                WHERE us.userid = u.userid AND s.name LIKE :q6)
+                     OR EXISTS (SELECT 1 FROM github_repositories gr
+                                WHERE gr.githubid = gp.githubid AND gr.language LIKE :q7))';
+        $params += [
+            ':q1' => $like, ':q2' => $like, ':q3' => $like, ':q4' => $like,
+            ':q5' => $like, ':q6' => $like, ':q7' => $like,
+        ];
     }
 
-    if ($where) {
-        $sql .= ' WHERE ' . implode(' AND ', $where);
+    if ($skills) {
+        $ph = [];
+        foreach ($skills as $i => $skill) {
+            $ph[] = ":sk{$i}";
+            $params[":sk{$i}"] = $skill;
+        }
+        $in = implode(',', $ph);
+        if ($skillMode === 'all') {
+            $where[] = "(SELECT COUNT(DISTINCT s.skillid)
+                         FROM user_skills us JOIN skills s ON s.skillid = us.skillid
+                         WHERE us.userid = u.userid AND s.name IN ({$in})) = " . count($skills);
+        } else {
+            $where[] = "EXISTS (SELECT 1 FROM user_skills us JOIN skills s ON s.skillid = us.skillid
+                         WHERE us.userid = u.userid AND s.name IN ({$in}))";
+        }
     }
 
-    $sql .= ' ORDER BY p.display_name ASC';
+    if ($languages) {
+        $ph = [];
+        foreach ($languages as $i => $lang) {
+            $ph[] = ":lg{$i}";
+            $params[":lg{$i}"] = $lang;
+        }
+        $in = implode(',', $ph);
+        $where[] = "EXISTS (SELECT 1 FROM github_repositories gr
+                     WHERE gr.githubid = gp.githubid AND gr.language IN ({$in}))";
+    }
+
+    if ($location !== '') {
+        $where[] = 'u.location LIKE :location';
+        $params[':location'] = '%' . $location . '%';
+    }
+
+    if ($jobtitle !== '') {
+        $roles = splitCsv($jobtitle);
+        $ph = [];
+        foreach ($roles as $i => $role) {
+            $ph[] = ":job{$i}";
+            $params[":job{$i}"] = '%' . $role . '%';
+        }
+        $where[] = '(' . implode(' OR ', array_map(function ($key) {
+            return "u.jobtitle LIKE {$key}";
+        }, $ph)) . ')';
+    }
+
+    if ($minStars > 0) {
+        $where[] = '(SELECT COALESCE(SUM(gr.stars), 0) FROM github_repositories gr
+                      WHERE gr.githubid = gp.githubid) >= :minStars';
+        $params[':minStars'] = $minStars;
+    }
+
+    if ($hasGithub) {
+        $where[] = 'gp.githubid IS NOT NULL';
+    }
+
+    if ($following) {
+        $where[] = 'EXISTS (SELECT 1 FROM contacts c
+                     WHERE c.userid = :me AND c.contact_userid = u.userid)';
+        $params[':me'] = $me;
+    }
+
+    $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+
+    $countStmt = $db->prepare(
+        'SELECT COUNT(*) FROM users u
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid' . $whereSql
+    );
+    foreach ($params as $key => $value) {
+        $countStmt->bindValue($key, $value);
+    }
+    $countStmt->execute();
+    $total = (int) $countStmt->fetchColumn();
+
+    $paginate = ($sort !== 'match');
+    $sql .= $whereSql;
+
+    if ($paginate) {
+        $orderMap = [
+            'stars'     => 'total_stars DESC, u.displayname ASC',
+            'followers' => 'gp.followers DESC, u.displayname ASC',
+            'repos'     => 'gp.public_repos DESC, u.displayname ASC',
+            'recent'    => 'u.created_at DESC, u.userid DESC',
+            'name'      => 'u.displayname ASC, u.loginuid ASC',
+        ];
+        $order = $orderMap[$sort] ?? $orderMap['name'];
+        $sql .= ' ORDER BY ' . $order . ' LIMIT :limit OFFSET :offset';
+    } else {
+        $sql .= ' ORDER BY u.userid ASC';
+    }
 
     $stmt = $db->prepare($sql);
-    $stmt->execute($params);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
+    if ($paginate) {
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
     $rows = $stmt->fetchAll();
 
     attachListSkills($db, $rows);
+    attachListLanguages($db, $rows);
+    attachAffinity($db, $rows, $me);
 
-    $data = array_map(function ($row) {
+    if ($sort === 'match') {
+        usort($rows, function ($a, $b) {
+            return ($b['matchScore'] <=> $a['matchScore'])
+                ?: strcmp((string) $a['displayname'], (string) $b['displayname']);
+        });
+        $rows = array_slice($rows, $offset, $limit);
+    }
+
+    $data = array_map(function ($row) use ($me) {
         return [
-            'userid'         => (int) $row['userid'],
-            'login'          => $row['loginuid'],
-            'firstName'      => $row['firstname'],
-            'lastName'       => $row['lastname'],
-            'displayName'    => $row['display_name'],
-            'bio'            => $row['bio'],
-            'location'       => $row['location'],
-            'jobTitle'       => $row['job_title'],
-            'avatarUrl'      => $row['github_avatar_url'] ?: $row['avatar_url'],
-            'resumeUrl'      => $row['resume_url'],
-            'githubUsername' => $row['github_username'],
-            'followers'      => (int) $row['followers'],
-            'following'      => (int) $row['following'],
-            'publicRepos'    => (int) $row['public_repos'],
-            'totalStars'     => (int) $row['totalStars'],
-            'skills'         => $row['skills'],
+            'userid'          => (int) $row['userid'],
+            'login'           => $row['loginuid'],
+            'firstName'       => $row['firstname'],
+            'lastName'        => $row['lastname'],
+            'displayName'     => $row['displayname'],
+            'bio'             => $row['bio'],
+            'location'        => $row['location'],
+            'jobTitle'        => $row['jobtitle'],
+            'avatarUrl'       => $row['github_avatar_url'] ?: $row['avatar'],
+            'resumeUrl'       => $row['resume'],
+            'githubUsername'  => $row['github_username'],
+            'followers'       => (int) $row['followers'],
+            'following'       => (int) $row['following'],
+            'publicRepos'     => (int) $row['public_repos'],
+            'totalStars'      => (int) $row['totalStars'],
+            'skills'          => $row['skills'],
+            'languages'       => $row['languages'],
+            'isFollowing'     => $row['isFollowing'],
+            'isSelf'          => (int) $row['userid'] === $me,
+            'sharedSkills'    => $row['sharedSkills'],
+            'sharedLanguages' => $row['sharedLanguages'],
+            'matchScore'      => $row['matchScore'],
+        ];
+    }, $rows);
+
+    respond(200, ['data' => $data, 'meta' => [
+        'total'  => $total,
+        'limit'  => $limit,
+        'offset' => $offset,
+    ]]);
+}
+
+/**
+ * Returns filter option counts for the discovery UI.
+ *
+ * @param PDO $db
+ */
+function profileFacets($db) {
+    $skills = $db->query(
+        'SELECT s.skillid, s.name, s.category, COUNT(us.userid) AS developers
+         FROM skills s
+         LEFT JOIN user_skills us ON us.skillid = s.skillid
+         GROUP BY s.skillid, s.name, s.category
+         ORDER BY developers DESC, s.name ASC'
+    )->fetchAll();
+
+    $languageRows = $db->query(
+        "SELECT gr.language, COUNT(DISTINCT g.userid) AS developers
+         FROM github_repositories gr
+         JOIN github_profiles g ON g.githubid = gr.githubid
+         WHERE gr.language IS NOT NULL AND gr.language <> ''
+         GROUP BY gr.language
+         ORDER BY developers DESC, gr.language ASC"
+    )->fetchAll();
+
+    // Offer a broad, familiar language list even before it appears in repos.
+    $common = [
+        'JavaScript', 'TypeScript', 'Python', 'Java', 'C', 'C++', 'C#', 'Go', 'Rust',
+        'Ruby', 'PHP', 'Swift', 'Kotlin', 'Scala', 'R', 'Dart', 'Perl', 'Haskell',
+        'Lua', 'Elixir', 'Objective-C', 'Shell', 'HTML', 'CSS', 'SCSS', 'Vue',
+        'Svelte', 'SQL', 'MATLAB', 'Groovy', 'Erlang', 'Julia', 'Zig', 'Assembly',
+    ];
+    $seen = [];
+    $languages = [];
+    foreach ($languageRows as $row) {
+        $seen[$row['language']] = true;
+        $languages[] = ['language' => $row['language'], 'developers' => (int) $row['developers']];
+    }
+    foreach ($common as $lang) {
+        if (!isset($seen[$lang])) {
+            $languages[] = ['language' => $lang, 'developers' => 0];
+        }
+    }
+
+    $locations = $db->query(
+        "SELECT location, COUNT(*) AS developers
+         FROM users
+         WHERE location IS NOT NULL AND location <> ''
+         GROUP BY location
+         ORDER BY developers DESC, location ASC
+         LIMIT 100"
+    )->fetchAll();
+
+    $jobTitleRows = $db->query(
+        "SELECT jobtitle, COUNT(*) AS developers
+         FROM users
+         WHERE jobtitle IS NOT NULL AND jobtitle <> ''
+         GROUP BY jobtitle
+         ORDER BY developers DESC, jobtitle ASC
+         LIMIT 100"
+    )->fetchAll();
+
+    // Offer familiar roles even before they appear in profiles.
+    $commonRoles = [
+        'Software Engineer', 'Frontend Developer', 'Backend Developer',
+        'Full-Stack Developer', 'Mobile Developer', 'DevOps Engineer',
+        'Data Engineer', 'Data Scientist', 'Machine Learning Engineer',
+        'QA Engineer', 'Product Manager', 'Engineering Manager',
+        'UI/UX Designer', 'Security Engineer', 'Site Reliability Engineer',
+        'Platform Engineer', 'Systems Engineer', 'Cloud Architect',
+        'Technical Lead', 'Solutions Architect', 'Game Developer',
+        'Embedded Engineer',
+    ];
+    $seenRoles = [];
+    $jobTitles = [];
+    foreach ($jobTitleRows as $row) {
+        $seenRoles[$row['jobtitle']] = true;
+        $jobTitles[] = ['jobtitle' => $row['jobtitle'], 'developers' => (int) $row['developers']];
+    }
+    foreach ($commonRoles as $role) {
+        if (!isset($seenRoles[$role])) {
+            $jobTitles[] = ['jobtitle' => $role, 'developers' => 0];
+        }
+    }
+
+    respond(200, ['data' => [
+        'skills'    => $skills,
+        'languages' => $languages,
+        'locations' => $locations,
+        'jobTitles' => $jobTitles,
+    ]]);
+}
+
+/**
+ * Suggests collaborators ranked by shared skills and GitHub languages.
+ *
+ * @param PDO $db
+ */
+function suggestDevelopers($db) {
+    $me    = requireAuth();
+    $limit = isset($_GET['limit']) ? max(1, min(50, (int) $_GET['limit'])) : 6;
+
+    $stmt = $db->prepare(
+        'SELECT u.userid, u.loginuid, u.firstname, u.lastname, u.displayname,
+                u.bio, u.location, u.jobtitle, u.avatar, u.resume,
+                gp.githubid, gp.username AS github_username,
+                gp.avatar_url AS github_avatar_url,
+                gp.followers, gp.following, gp.public_repos,
+                (SELECT COALESCE(SUM(gr.stars), 0) FROM github_repositories gr
+                  WHERE gr.githubid = gp.githubid) AS total_stars
+         FROM users u
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid
+         WHERE u.userid <> :me'
+    );
+    $stmt->execute([':me' => $me]);
+    $rows = $stmt->fetchAll();
+
+    attachListSkills($db, $rows);
+    attachListLanguages($db, $rows);
+    attachAffinity($db, $rows, $me);
+
+    $rows = array_values(array_filter($rows, function ($row) {
+        return $row['matchScore'] > 0;
+    }));
+    usort($rows, function ($a, $b) {
+        return ($b['matchScore'] <=> $a['matchScore'])
+            ?: strcmp((string) $a['displayname'], (string) $b['displayname']);
+    });
+    $rows = array_slice($rows, 0, $limit);
+
+    $following = fetchFollowingSet($db, $me);
+
+    $data = array_map(function ($row) use ($following) {
+        return [
+            'userid'          => (int) $row['userid'],
+            'login'           => $row['loginuid'],
+            'displayName'     => $row['displayname'],
+            'jobTitle'        => $row['jobtitle'],
+            'location'        => $row['location'],
+            'avatarUrl'       => $row['github_avatar_url'] ?: $row['avatar'],
+            'skills'          => $row['skills'],
+            'languages'       => $row['languages'],
+            'isFollowing'     => isset($following[(int) $row['userid']]),
+            'sharedSkills'    => $row['sharedSkills'],
+            'sharedLanguages' => $row['sharedLanguages'],
+            'matchScore'      => $row['matchScore'],
         ];
     }, $rows);
 
@@ -124,7 +443,105 @@ function listProfiles($db) {
 }
 
 /**
- * Attaches a skills array and a normalized totalStars field to profile rows.
+ * Attaches skills, languages, follow state and affinity to profile rows.
+ *
+ * @param PDO $db
+ * @param array $rows
+ * @param int $me
+ */
+function attachAffinity($db, &$rows, $me) {
+    if (!$rows) {
+        return;
+    }
+
+    $affinity  = myAffinity($db, $me);
+    $following = fetchFollowingSet($db, $me);
+
+    foreach ($rows as &$row) {
+        [$score, $sharedSkills, $sharedLanguages] =
+            affinityFor($row['skills'] ?? [], $row['languages'] ?? [], $affinity);
+        $row['isFollowing']     = isset($following[(int) $row['userid']]);
+        $row['sharedSkills']    = $sharedSkills;
+        $row['sharedLanguages'] = $sharedLanguages;
+        $row['matchScore']      = $score;
+    }
+}
+
+/**
+ * Loads the set of user ids the given user follows.
+ *
+ * @param PDO $db
+ * @param int $userid
+ * @return array<int,bool>
+ */
+function fetchFollowingSet($db, $userid) {
+    $stmt = $db->prepare(
+        'SELECT contact_userid FROM contacts
+         WHERE userid = :userid AND contact_userid IS NOT NULL'
+    );
+    $stmt->execute([':userid' => $userid]);
+
+    $set = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $set[(int) $row['contact_userid']] = true;
+    }
+    return $set;
+}
+
+/**
+ * Loads the current user's skill ids and languages for affinity matching.
+ *
+ * @param PDO $db
+ * @param int $userid
+ * @return array{skillIds:array,languages:array}
+ */
+function myAffinity($db, $userid) {
+    $skills = $db->prepare('SELECT skillid FROM user_skills WHERE userid = :userid');
+    $skills->execute([':userid' => $userid]);
+    $skillIds = array_flip(array_map('intval', array_column($skills->fetchAll(), 'skillid')));
+
+    $langs = $db->prepare(
+        "SELECT DISTINCT gr.language
+         FROM github_repositories gr
+         JOIN github_profiles g ON g.githubid = gr.githubid
+         WHERE g.userid = :userid AND gr.language IS NOT NULL AND gr.language <> ''"
+    );
+    $langs->execute([':userid' => $userid]);
+    $languageSet = array_flip(array_map(function ($row) {
+        return $row['language'];
+    }, $langs->fetchAll()));
+
+    return ['skillIds' => $skillIds, 'languages' => $languageSet];
+}
+
+/**
+ * Computes the shared-skill/language overlap and score for a candidate.
+ *
+ * @param array $candidateSkills
+ * @param array $candidateLanguages
+ * @param array $affinity
+ * @return array{0:int,1:string[],2:string[]}
+ */
+function affinityFor($candidateSkills, $candidateLanguages, $affinity) {
+    $sharedSkills = [];
+    foreach ($candidateSkills as $skill) {
+        if (isset($affinity['skillIds'][(int) $skill['skillid']])) {
+            $sharedSkills[] = $skill['name'];
+        }
+    }
+
+    $sharedLanguages = [];
+    foreach ($candidateLanguages as $lang) {
+        if (isset($affinity['languages'][$lang['language']])) {
+            $sharedLanguages[] = $lang['language'];
+        }
+    }
+
+    return [count($sharedSkills) * 2 + count($sharedLanguages), $sharedSkills, $sharedLanguages];
+}
+
+/**
+ * Attaches a skills array to profile rows.
  *
  * @param PDO $db
  * @param array $rows
@@ -166,6 +583,46 @@ function attachListSkills($db, &$rows) {
 }
 
 /**
+ * Attaches aggregated GitHub languages to profile rows.
+ *
+ * @param PDO $db
+ * @param array $rows
+ */
+function attachListLanguages($db, &$rows) {
+    if (!$rows) {
+        return;
+    }
+
+    $ids = array_map(function ($row) {
+        return (int) $row['userid'];
+    }, $rows);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+    $stmt = $db->prepare(
+        "SELECT g.userid, gr.language, COUNT(*) AS repos, COALESCE(SUM(gr.stars), 0) AS stars
+         FROM github_repositories gr
+         JOIN github_profiles g ON g.githubid = gr.githubid
+         WHERE g.userid IN ({$placeholders}) AND gr.language IS NOT NULL AND gr.language <> ''
+         GROUP BY g.userid, gr.language
+         ORDER BY repos DESC, gr.language ASC"
+    );
+    $stmt->execute($ids);
+
+    $byUser = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $byUser[(int) $row['userid']][] = [
+            'language' => $row['language'],
+            'repos'    => (int) $row['repos'],
+            'stars'    => (int) $row['stars'],
+        ];
+    }
+
+    foreach ($rows as &$row) {
+        $row['languages'] = $byUser[(int) $row['userid']] ?? [];
+    }
+}
+
+/**
  * Returns the full public profile for one developer.
  *
  * @param PDO $db
@@ -173,14 +630,13 @@ function attachListSkills($db, &$rows) {
  */
 function getProfile($db, $userid) {
     $stmt = $db->prepare(
-        'SELECT u.userid, u.loginuid, p.profileid, p.firstname, p.lastname,
-                p.display_name, p.bio, p.location, p.job_title, p.avatar_url,
-                p.resume_url, gp.githubid, gp.username AS github_username,
+        'SELECT u.userid, u.loginuid, u.firstname, u.lastname,
+                u.displayname, u.bio, u.location, u.jobtitle, u.avatar,
+                u.resume, gp.githubid, gp.username AS github_username,
                 gp.avatar_url AS github_avatar_url,
                 gp.profile_url AS github_profile_url, gp.followers, gp.following,
                 gp.public_repos, gp.public_gists, gp.last_synced
          FROM users u
-         LEFT JOIN profiles p ON p.userid = u.userid
          LEFT JOIN github_profiles gp ON gp.userid = u.userid
          WHERE u.userid = :userid'
     );
@@ -190,6 +646,8 @@ function getProfile($db, $userid) {
     if (!$profile) {
         respond(404, ['error' => 'Profile not found']);
     }
+
+    $me = requireAuth();
 
     $repos = [];
     if ($profile['githubid'] !== null) {
@@ -203,20 +661,32 @@ function getProfile($db, $userid) {
         $repos = $repoStmt->fetchAll();
     }
 
+    $skills    = fetchSkills($db, $userid);
+    $languages = fetchLanguages($db, $userid);
+    [$matchScore, $sharedSkills, $sharedLanguages] =
+        affinityFor($skills, $languages, myAffinity($db, $me));
+    $following = fetchFollowingSet($db, $me);
+
     respond(200, ['data' => [
-        'userid'      => (int) $profile['userid'],
-        'login'       => $profile['loginuid'],
-        'firstName'   => $profile['firstname'],
-        'lastName'    => $profile['lastname'],
-        'displayName' => $profile['display_name'],
-        'bio'         => $profile['bio'],
-        'location'    => $profile['location'],
-        'jobTitle'    => $profile['job_title'],
-        'avatarUrl'   => $profile['avatar_url'],
-        'resumeUrl'   => $profile['resume_url'],
-        'skills'      => fetchSkills($db, $userid),
-        'socialLinks' => fetchSocialLinks($db, $userid),
-        'github'      => $profile['githubid'] !== null ? [
+        'userid'          => (int) $profile['userid'],
+        'login'           => $profile['loginuid'],
+        'firstName'       => $profile['firstname'],
+        'lastName'        => $profile['lastname'],
+        'displayName'     => $profile['displayname'],
+        'bio'             => $profile['bio'],
+        'location'        => $profile['location'],
+        'jobTitle'        => $profile['jobtitle'],
+        'avatarUrl'       => $profile['github_avatar_url'] ?: $profile['avatar'],
+        'resumeUrl'       => $profile['resume'],
+        'isSelf'          => (int) $profile['userid'] === $me,
+        'isFollowing'     => isset($following[(int) $profile['userid']]),
+        'matchScore'      => $matchScore,
+        'sharedSkills'    => $sharedSkills,
+        'sharedLanguages' => $sharedLanguages,
+        'skills'          => $skills,
+        'languages'       => $languages,
+        'socialLinks'     => fetchSocialLinks($db, $userid),
+        'github'          => $profile['githubid'] !== null ? [
             'username'    => $profile['github_username'],
             'avatarUrl'   => $profile['github_avatar_url'],
             'profileUrl'  => $profile['github_profile_url'],
@@ -241,14 +711,13 @@ function updateProfile($db, $userid) {
 
     $body = getRequestBody();
     $columns = [
-        'firstname'    => 'firstName',
-        'lastname'     => 'lastName',
-        'display_name' => 'displayName',
-        'bio'          => 'bio',
-        'location'     => 'location',
-        'job_title'    => 'jobTitle',
-        'avatar_url'   => 'avatarUrl',
-        'resume_url'   => 'resumeUrl',
+        'firstname'   => 'firstName',
+        'lastname'    => 'lastName',
+        'displayname' => 'displayName',
+        'bio'         => 'bio',
+        'location'    => 'location',
+        'jobtitle'    => 'jobTitle',
+        'resume'      => 'resumeUrl',
     ];
 
     $sets = [];
@@ -266,11 +735,76 @@ function updateProfile($db, $userid) {
     }
 
     $stmt = $db->prepare(
-        'UPDATE profiles SET ' . implode(', ', $sets) . ' WHERE userid = :userid'
+        'UPDATE users SET ' . implode(', ', $sets) . ' WHERE userid = :userid'
     );
     $stmt->execute($params);
 
     getProfile($db, $userid);
+}
+
+/**
+ * Follows (saves) another developer to the current user's contacts.
+ *
+ * @param PDO $db
+ * @param int $targetId
+ */
+function followDeveloper($db, $targetId) {
+    $me = requireAuth();
+
+    if ($targetId === $me) {
+        respond(400, ['error' => 'You cannot follow yourself']);
+    }
+
+    $exists = $db->prepare('SELECT userid, firstname, lastname, email FROM users WHERE userid = :id');
+    $exists->execute([':id' => $targetId]);
+    $target = $exists->fetch();
+    if (!$target) {
+        respond(404, ['error' => 'Developer not found']);
+    }
+
+    try {
+        $stmt = $db->prepare(
+            'INSERT INTO contacts (userid, contact_userid, firstname, lastname, email, description)
+             VALUES (:me, :target, :first, :last, :email, :description)'
+        );
+        $stmt->execute([
+            ':me'          => $me,
+            ':target'      => $targetId,
+            ':first'       => $target['firstname'],
+            ':last'        => $target['lastname'],
+            ':email'       => $target['email'],
+            ':description' => 'collab.dev developer',
+        ]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            respond(409, ['error' => 'You are already following this developer']);
+        }
+        error_log('Follow error: ' . $e->getMessage());
+        respond(500, ['error' => 'Could not follow developer']);
+    }
+
+    respond(201, ['data' => ['contactid' => (int) $db->lastInsertId(), 'following' => true]]);
+}
+
+/**
+ * Unfollows a developer.
+ *
+ * @param PDO $db
+ * @param int $targetId
+ */
+function unfollowDeveloper($db, $targetId) {
+    $me = requireAuth();
+
+    $stmt = $db->prepare(
+        'DELETE FROM contacts WHERE userid = :me AND contact_userid = :target'
+    );
+    $stmt->execute([':me' => $me, ':target' => $targetId]);
+
+    if ($stmt->rowCount() === 0) {
+        respond(404, ['error' => 'You are not following this developer']);
+    }
+
+    respond(200, ['data' => ['following' => false]]);
 }
 
 /**
@@ -487,6 +1021,33 @@ function fetchSkills($db, $userid) {
     );
     $stmt->execute([':userid' => $userid]);
     return $stmt->fetchAll();
+}
+
+/**
+ * Returns aggregated GitHub languages for one developer.
+ *
+ * @param PDO $db
+ * @param int $userid
+ * @return array
+ */
+function fetchLanguages($db, $userid) {
+    $stmt = $db->prepare(
+        "SELECT gr.language, COUNT(*) AS repos, COALESCE(SUM(gr.stars), 0) AS stars
+         FROM github_repositories gr
+         JOIN github_profiles g ON g.githubid = gr.githubid
+         WHERE g.userid = :userid AND gr.language IS NOT NULL AND gr.language <> ''
+         GROUP BY gr.language
+         ORDER BY repos DESC, gr.language ASC"
+    );
+    $stmt->execute([':userid' => $userid]);
+
+    return array_map(function ($row) {
+        return [
+            'language' => $row['language'],
+            'repos'    => (int) $row['repos'],
+            'stars'    => (int) $row['stars'],
+        ];
+    }, $stmt->fetchAll());
 }
 
 /**

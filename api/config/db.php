@@ -18,8 +18,8 @@ function getDB() {
         loadEnv();
 
         $host    = getenv('DB_HOST')     ?: 'localhost';
-        $dbname  = getenv('DB_NAME')     ?: 'developer_bio_site';
-        $user    = getenv('DB_USER')     ?: 'bioapp_user';
+        $dbname  = getenv('DB_NAME')     ?: 'ContactManagerDB';
+        $user    = getenv('DB_USER')     ?: 'ContactManagerUser';
         $pass    = getenv('DB_PASSWORD') !== false
                      ? getenv('DB_PASSWORD')
                      : (getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');

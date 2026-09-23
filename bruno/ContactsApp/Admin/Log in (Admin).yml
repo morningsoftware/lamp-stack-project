@@ -1,0 +1,25 @@
+info:
+  name: Log in (Admin)
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/auth/login"
+  body:
+    type: multipart-form
+    data:
+      - name: login
+        type: text
+        value: admin
+      - name: password
+        type: text
+        value: ChangeMe123!
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

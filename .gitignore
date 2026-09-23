@@ -9,3 +9,11 @@ cgi-bin/
 
 # Legacy demo schema (superseded by resetdb.sql at the repo root)
 api/config/resetdb.sql
+
+# Local database dumps
+dbdump.sql
+dbdump2.sql
+
+# Front-end (not part of the API/DB PR)
+/index.html
+/assets/
