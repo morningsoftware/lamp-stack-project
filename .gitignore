@@ -15,5 +15,5 @@ dbdump.sql
 dbdump2.sql
 
 # Front-end (not part of the API/DB PR)
-/index.html
-/assets/
+# /index.html
+# /assets/
