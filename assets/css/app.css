@@ -180,6 +180,26 @@ svg.spark { width: 76px; height: 18px; }
   background: none; border: none; padding: 0; color: var(--text);
   font-weight: 600; text-decoration: underline; cursor: pointer; font-family: var(--mono); font-size: 11px;
 }
+.lab-login { align-items: center; }
+.login-layout { width: 100%; max-width: 900px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; }
+.login-intro .home-features { grid-template-columns: 1fr 1fr; margin-top: 28px; }
+.eyebrow { margin: 0 0 12px; color: var(--faint); font: 600 11px/1 var(--mono); letter-spacing: .14em; }
+.login-panel { padding: 28px; }
+.login-panel h2 { margin: 0 0 6px; font: 600 22px/1.2 var(--mono); }
+.login-panel .sub { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
+.login-panel .btn-primary { width: 100%; padding-block: 11px; }
+.login-panel .auth-switch { text-align: center; margin: 18px 0 0; }
+.account-contact { padding: 16px 18px; margin: 20px 0; }
+.account-contact h2 { margin: 0 0 12px; font: 600 12px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.account-contact dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; margin: 0; }
+.account-contact dl > div { min-width: 0; }
+.account-contact dt { color: var(--faint); font: 500 10px/1.2 var(--mono); text-transform: uppercase; }
+.account-contact dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 13px; }
+@media (max-width: 720px) {
+  .login-layout { grid-template-columns: 1fr; gap: 28px; }
+  .login-intro .home-features { display: none; }
+  .account-contact dl { grid-template-columns: 1fr; gap: 10px; }
+}
 
 /* ---------- Browse ---------- */
 .browse-head { max-width: 640px; margin: 0 auto 26px; }

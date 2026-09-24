@@ -622,6 +622,12 @@
         '<div class="home"><div class="home-inner">' +
         '<h1 class="home-title">welcome back, ' + escapeHtml(user.displayName || user.login || 'developer') + '<span class="tick">.</span></h1>' +
         '<p class="home-sub">Manage your personal contacts or search the developer directory.</p>' +
+        '<section class="account-contact panel" aria-labelledby="account-contact-title">' +
+        '<h2 id="account-contact-title">Contact information</h2>' +
+        '<dl><div><dt>Name</dt><dd>' + escapeHtml(user.displayName || [user.firstName,user.lastName].filter(Boolean).join(' ') || user.login || 'Not provided') + '</dd></div>' +
+        '<div><dt>Username</dt><dd>@' + escapeHtml(user.login || '') + '</dd></div>' +
+        '<div><dt>Email</dt><dd>' + escapeHtml(user.email || 'Available in account settings') + '</dd></div></dl>' +
+        '</section>' +
         '<div class="home-hero-actions">' +
         '<a class="btn btn-primary" href="#/contacts">' + ICON.user + ' my contacts</a>' +
         '<a class="btn" href="#/browse">' + ICON.search + ' browse directory</a>' +
@@ -646,40 +652,52 @@
     }
 
     root.innerHTML =
-      '<div class="home"><div class="home-inner">' +
+      '<div class="home lab-login"><div class="login-layout">' +
+      '<section class="login-intro"><p class="eyebrow">LAMP CONTACT MANAGER</p>' +
       '<h1 class="home-title">collab<span class="tick">.dev</span></h1>' +
-      '<p class="home-sub">Your contacts. Your next collaboration.</p>' +
-      '<div class="home-hero-actions">' +
-      '<button class="btn btn-primary" id="hero-reg-btn">create account</button>' +
-      '<button class="btn" id="hero-login-btn">sign in</button>' +
-      '</div>' +
-      '<form class="search-form" id="search-form">' +
-      '<input class="search-input" id="search-input" type="search" aria-label="Search developer directory" placeholder="search name, @login, skill…" ' +
-      'autocomplete="off" value="' + escapeHtml(query.q || '') + '">' +
-      '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
-      '</form>' +
+      '<p class="home-sub">Sign in to manage your contacts and developer connections.</p>' +
       '<div class="home-features">' +
-      '<div class="feature-card"><h3>📇 Personal Contacts</h3><p>Keep names, notes, and contact details in one place.</p></div>' +
-      '<div class="feature-card"><h3>🛡️ Your workspace</h3><p>A personal address book, with account management for your team.</p></div>' +
-      '<div class="feature-card"><h3>⚡ Discover people</h3><p>Find developers, explore shared skills, and stay in touch.</p></div>' +
-      '</div>' +
-      '</div></div>';
+      '<div class="feature-card"><h3>Personal contacts</h3><p>Create, find, update, and remove contact information.</p></div>' +
+      '<div class="feature-card"><h3>Secure accounts</h3><p>Your contacts remain connected to your account.</p></div>' +
+      '</div></section>' +
+      '<section class="login-panel panel" aria-labelledby="login-title">' +
+      '<h2 id="login-title">Sign in</h2><p class="sub">Enter your account credentials to continue.</p>' +
+      '<form id="landing-login-form" class="form-grid">' +
+      field('login','Username or email',{required:true,autocomplete:'username'}) +
+      field('password','Password',{type:'password',required:true,autocomplete:'current-password'}) +
+      '<button class="btn btn-primary" type="submit">Sign in</button></form>' +
+      '<p class="auth-switch">Need an account? <button class="text-button" type="button" id="hero-reg-btn">Register</button></p>' +
+      '</section></div></div>';
 
     $('#hero-reg-btn').addEventListener('click', () => openAuthModal('register'));
-    $('#hero-login-btn').addEventListener('click', () => openAuthModal('login'));
-
-    const form = $('#search-form');
-    const input = $('#search-input');
-    form.addEventListener('submit', (e) => {
+    const form = $('#landing-login-form');
+    form.addEventListener('submit', async e => {
       e.preventDefault();
-      const q = input.value.trim();
-      if (!isLoggedIn()) {
-        openAuthModal('login');
-        return;
+      if (form.dataset.busy) return;
+      const data = Object.fromEntries(new FormData(form));
+      const button = form.querySelector('[type=submit]');
+      form.dataset.busy = '1'; button.disabled = true; button.textContent = 'Signing in…';
+      try {
+        const result = await API.login(data.login,data.password);
+        if (!result?.token) throw new Error('invalid');
+        API.setToken(result.token);
+        state.user = await API.session();
+        renderProfileSlot();
+        await render();
+        toast('Welcome back','success');
+      } catch (err) {
+        API.setToken(null); state.user = null;
+        root.innerHTML = '<div class="container">' + emptyState('!', 'Login failed',
+          'The username or password was incorrect. Please try again.',
+          '<button class="btn btn-primary" id="retry-login">Try again</button>') + '</div>';
+        $('#retry-login').addEventListener('click', () => render());
+        root.focus();
+      } finally {
+        delete form.dataset.busy;
+        if (button.isConnected) { button.disabled = false; button.textContent = 'Sign in'; }
       }
-      location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
     });
-    input.focus();
+    $('#field-login').focus();
   }
 
   /* ---------------- Browse ---------------- */
