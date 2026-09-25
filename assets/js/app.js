@@ -1804,7 +1804,7 @@
         '<div class="convo-main"><div class="convo-name">' + escapeHtml(title) +
         (convo.isGroup ? ' <span class="badge">group</span>' : '') + '</div>' +
         '<div class="convo-preview">' + escapeHtml(convo.lastMessage || 'no messages yet') + '</div></div>' +
-        '<div class="convo-side">' + (convo.unreadCount ? '<span class="unread">' + convo.unreadCount + '</span>' : '<span class="convo-time">' + escapeHtml(timeAgo(convo.lastMessageAt)) + '</span>') + '</div></div>';
+        '<div class="convo-side">' + (convo.unreadCount ? '<span class="unread">' + convo.unreadCount + '</span>' : '') + '</div></div>';
     }).join('');
     $$('.convo-item', list).forEach((item) =>
       item.addEventListener('click', () => { location.hash = '#/messages/' + item.dataset.id; }));
@@ -1843,8 +1843,7 @@
           const sender = m.sender_displayname || m.sender_login || '';
           return '<div class="bubble' + (mine ? ' me' : '') + '">' +
             (!mine && isGroup ? '<span class="bubble-sender">' + escapeHtml(sender) + '</span>' : '') +
-            escapeHtml(m.body) +
-            '<span class="time">' + escapeHtml(timeAgo(m.created_at)) + '</span></div>';
+            escapeHtml(m.body) + '</div>';
         }).join('')
       : '<div class="empty"><p class="muted">no messages yet. say hello!</p></div>';
 
