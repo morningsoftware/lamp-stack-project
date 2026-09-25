@@ -653,13 +653,10 @@
 
     root.innerHTML =
       '<div class="home lab-login"><div class="login-layout">' +
-      '<section class="login-intro"><p class="eyebrow">LAMP CONTACT MANAGER</p>' +
+      '<section class="login-intro">' +
       '<h1 class="home-title">collab<span class="tick">.dev</span></h1>' +
       '<p class="home-sub">Sign in to manage your contacts and developer connections.</p>' +
-      '<div class="home-features">' +
-      '<div class="feature-card"><h3>Personal contacts</h3><p>Create, find, update, and remove contact information.</p></div>' +
-      '<div class="feature-card"><h3>Secure accounts</h3><p>Your contacts remain connected to your account.</p></div>' +
-      '</div></section>' +
+      '</section>' +
       '<section class="login-panel panel" aria-labelledby="login-title">' +
       '<h2 id="login-title">Sign in</h2><p class="sub">Enter your account credentials to continue.</p>' +
       '<form id="landing-login-form" class="form-grid">' +

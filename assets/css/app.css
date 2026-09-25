@@ -166,10 +166,6 @@ svg.spark { width: 76px; height: 18px; }
 .search-input:focus { outline: none; border-color: var(--text); box-shadow: var(--ring); }
 .home-hint { margin-top: 14px; font-size: 12px; color: var(--faint); font-family: var(--mono); }
 .home-hint a { color: var(--text); text-decoration: underline; }
-.home-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 36px; }
-.feature-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; text-align: left; }
-.feature-card h3 { font-family: var(--mono); font-size: 12px; font-weight: 600; margin: 0 0 6px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text); }
-.feature-card p { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.4; }
 .demo-helper-box {
   margin-top: 18px; padding: 12px 14px; background: var(--surface-2);
   border: 1px dashed var(--line-strong); border-radius: var(--radius);
@@ -182,8 +178,6 @@ svg.spark { width: 76px; height: 18px; }
 }
 .lab-login { align-items: center; }
 .login-layout { width: 100%; max-width: 900px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; }
-.login-intro .home-features { grid-template-columns: 1fr 1fr; margin-top: 28px; }
-.eyebrow { margin: 0 0 12px; color: var(--faint); font: 600 11px/1 var(--mono); letter-spacing: .14em; }
 .login-panel { padding: 28px; }
 .login-panel h2 { margin: 0 0 6px; font: 600 22px/1.2 var(--mono); }
 .login-panel .sub { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
@@ -197,7 +191,6 @@ svg.spark { width: 76px; height: 18px; }
 .account-contact dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 13px; }
 @media (max-width: 720px) {
   .login-layout { grid-template-columns: 1fr; gap: 28px; }
-  .login-intro .home-features { display: none; }
   .account-contact dl { grid-template-columns: 1fr; gap: 10px; }
 }
 
@@ -644,7 +637,6 @@ input[readonly] { background:var(--surface-2); color:var(--muted); }
   .form-columns { grid-template-columns:1fr; }
   .modal-card { padding:18px; }
   .dialog-actions .btn { flex:1; }
-  .home-features { grid-template-columns:1fr; }
 }
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.01ms !important; transition-duration:.01ms !important; }
