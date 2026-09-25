@@ -663,6 +663,8 @@ function getProfile($db, $identifier) {
         respond(404, ['error' => 'Profile not found']);
     }
 
+    $userid = (int) $profile['userid'];
+
     $repos = [];
     if ($profile['githubid'] !== null) {
         $repoStmt = $db->prepare(
