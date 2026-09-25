@@ -617,35 +617,7 @@
 
   async function viewHome(root, query) {
     if (isLoggedIn()) {
-      const user = state.user || {};
-      root.innerHTML =
-        '<div class="home"><div class="home-inner">' +
-        '<h1 class="home-title">welcome back, ' + escapeHtml(user.displayName || user.login || 'developer') + '<span class="tick">.</span></h1>' +
-        '<p class="home-sub">Manage your personal contacts or search the developer directory.</p>' +
-        '<section class="account-contact panel" aria-labelledby="account-contact-title">' +
-        '<h2 id="account-contact-title">Contact information</h2>' +
-        '<dl><div><dt>Name</dt><dd>' + escapeHtml(user.displayName || [user.firstName,user.lastName].filter(Boolean).join(' ') || user.login || 'Not provided') + '</dd></div>' +
-        '<div><dt>Username</dt><dd>@' + escapeHtml(user.login || '') + '</dd></div>' +
-        '<div><dt>Email</dt><dd>' + escapeHtml(user.email || 'Available in account settings') + '</dd></div></dl>' +
-        '</section>' +
-        '<div class="home-hero-actions">' +
-        '<a class="btn btn-primary" href="#/contacts">' + ICON.user + ' my contacts</a>' +
-        (user.isAdmin ? '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' : '') +
-        '</div>' +
-        '<form class="search-form" id="search-form">' +
-        '<input class="search-input" id="search-input" type="search" aria-label="Search developer directory" placeholder="search developers by name, @login, skill…" ' +
-        'autocomplete="off" value="' + escapeHtml(query.q || '') + '">' +
-        '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
-        '</form>' +
-        '</div></div>';
-
-      const form = $('#search-form');
-      const input = $('#search-input');
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const q = input.value.trim();
-        location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
-      });
+      await viewProfile(root, state.user.userid);
       return;
     }
 
@@ -1231,7 +1203,7 @@
 
     root.innerHTML =
       '<div class="container">' +
-      '<a class="btn btn-sm btn-ghost" href="#/browse">' + ICON.back + ' back</a>' +
+      (isOwner ? '' : '<a class="btn btn-sm btn-ghost" href="#/browse">' + ICON.back + ' back</a>') +
       '<section class="section profile-head">' + avatarHtml(heroAvatar, 'xl') +
       '<div class="flex1">' +
       '<h1 class="profile-name">' + escapeHtml(displayNameOf(profile)) + '</h1>' +
