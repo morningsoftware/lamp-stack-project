@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: ""
+  url: "{{urlBase}}/api/index.php/ping"
   auth: inherit
 
 settings:

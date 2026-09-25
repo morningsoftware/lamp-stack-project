@@ -11,13 +11,16 @@ http:
     data:
       - name: login
         type: text
-        value: morningsoftware
+        value: "{{process.env.NEW_LOGIN}}"
       - name: email
         type: text
-        value: morningsoftware@proton.me
+        value: "{{process.env.NEW_EMAIL}}"
       - name: password
         type: text
-        value: password1!
+        value: "{{process.env.NEW_PASSWORD}}"
+      - name: githubUsername
+        type: text
+        value: "{{process.env.NEW_GITHUB}}"
   auth: inherit
 
 settings:
