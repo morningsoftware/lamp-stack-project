@@ -111,7 +111,7 @@ function compareUser($db, $userid) {
                 gp.followers, gp.following, gp.public_repos
          FROM users u
          LEFT JOIN github_profiles gp ON gp.userid = u.userid
-         WHERE u.userid = :userid'
+         WHERE u.userid = :userid AND u.isadmin = 0'
     );
     $stmt->execute([':userid' => $userid]);
     $row = $stmt->fetch();

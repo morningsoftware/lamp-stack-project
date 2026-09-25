@@ -61,14 +61,13 @@ if ($sub !== null) {
     respond(404, ['error' => 'Not found']);
 }
 
-$id = requireId($userid, 'user id');
-
 switch (requestMethod()) {
     case 'GET':
-        getProfile($db, $id);
+        // Accept either a numeric user id or a unique login handle.
+        getProfile($db, $userid);
         break;
     case 'PUT':
-        updateProfile($db, $id);
+        updateProfile($db, requireId($userid, 'user id'));
         break;
     default:
         header('Allow: GET, PUT');
@@ -129,6 +128,9 @@ function listProfiles($db) {
     // A user's own profile never appears in directory/search results.
     $where[] = 'u.userid <> :exclude_me';
     $params[':exclude_me'] = $me;
+
+    // Site/admin accounts are staff, not developers, so they never appear.
+    $where[] = 'u.isadmin = 0';
 
     if ($q !== '') {
         $like = '%' . $q . '%';
@@ -299,9 +301,11 @@ function listProfiles($db) {
  */
 function profileFacets($db) {
     $skills = $db->query(
-        'SELECT s.skillid, s.name, s.category, COUNT(us.userid) AS developers
+        'SELECT s.skillid, s.name, s.category,
+                COUNT(CASE WHEN u.isadmin = 0 THEN us.userid END) AS developers
          FROM skills s
          LEFT JOIN user_skills us ON us.skillid = s.skillid
+         LEFT JOIN users u ON u.userid = us.userid
          GROUP BY s.skillid, s.name, s.category
          ORDER BY developers DESC, s.name ASC'
     )->fetchAll();
@@ -310,7 +314,8 @@ function profileFacets($db) {
         "SELECT gr.language, COUNT(DISTINCT g.userid) AS developers
          FROM github_repositories gr
          JOIN github_profiles g ON g.githubid = gr.githubid
-         WHERE gr.language IS NOT NULL AND gr.language <> ''
+         JOIN users u ON u.userid = g.userid
+         WHERE u.isadmin = 0 AND gr.language IS NOT NULL AND gr.language <> ''
          GROUP BY gr.language
          ORDER BY developers DESC, gr.language ASC"
     )->fetchAll();
@@ -337,7 +342,7 @@ function profileFacets($db) {
     $locations = $db->query(
         "SELECT location, COUNT(*) AS developers
          FROM users
-         WHERE location IS NOT NULL AND location <> ''
+         WHERE location IS NOT NULL AND location <> '' AND isadmin = 0
          GROUP BY location
          ORDER BY developers DESC, location ASC
          LIMIT 100"
@@ -346,7 +351,7 @@ function profileFacets($db) {
     $jobTitleRows = $db->query(
         "SELECT jobtitle, COUNT(*) AS developers
          FROM users
-         WHERE jobtitle IS NOT NULL AND jobtitle <> ''
+         WHERE jobtitle IS NOT NULL AND jobtitle <> '' AND isadmin = 0
          GROUP BY jobtitle
          ORDER BY developers DESC, jobtitle ASC
          LIMIT 100"
@@ -402,7 +407,7 @@ function suggestDevelopers($db) {
                   WHERE gr.githubid = gp.githubid) AS total_stars
          FROM users u
          LEFT JOIN github_profiles gp ON gp.userid = u.userid
-         WHERE u.userid <> :me'
+         WHERE u.userid <> :me AND u.isadmin = 0'
     );
     $stmt->execute([':me' => $me]);
     $rows = $stmt->fetchAll();
@@ -628,19 +633,22 @@ function attachListLanguages($db, &$rows) {
  * @param PDO $db
  * @param int $userid
  */
-function getProfile($db, $userid) {
+function getProfile($db, $identifier) {
+    $numeric = ctype_digit((string) $identifier);
+    $where   = $numeric ? 'u.userid = :identifier' : 'u.loginuid = :identifier';
+
     $stmt = $db->prepare(
         'SELECT u.userid, u.loginuid, u.firstname, u.lastname,
                 u.displayname, u.bio, u.location, u.jobtitle, u.avatar,
-                u.resume, gp.githubid, gp.username AS github_username,
+                u.resume, u.isadmin, gp.githubid, gp.username AS github_username,
                 gp.avatar_url AS github_avatar_url,
                 gp.profile_url AS github_profile_url, gp.followers, gp.following,
                 gp.public_repos, gp.public_gists, gp.last_synced
          FROM users u
          LEFT JOIN github_profiles gp ON gp.userid = u.userid
-         WHERE u.userid = :userid'
+         WHERE ' . $where
     );
-    $stmt->execute([':userid' => $userid]);
+    $stmt->execute([':identifier' => $numeric ? (int) $identifier : (string) $identifier]);
     $profile = $stmt->fetch();
 
     if (!$profile) {
@@ -648,6 +656,14 @@ function getProfile($db, $userid) {
     }
 
     $me = requireAuth();
+
+    // Admin accounts are not part of the developer directory; only the
+    // account itself may view its own profile.
+    if ((int) $profile['isadmin'] === 1 && (int) $profile['userid'] !== $me) {
+        respond(404, ['error' => 'Profile not found']);
+    }
+
+    $userid = (int) $profile['userid'];
 
     $repos = [];
     if ($profile['githubid'] !== null) {
@@ -755,10 +771,10 @@ function followDeveloper($db, $targetId) {
         respond(400, ['error' => 'You cannot follow yourself']);
     }
 
-    $exists = $db->prepare('SELECT userid, firstname, lastname, email FROM users WHERE userid = :id');
+    $exists = $db->prepare('SELECT userid, firstname, lastname, email, isadmin FROM users WHERE userid = :id');
     $exists->execute([':id' => $targetId]);
     $target = $exists->fetch();
-    if (!$target) {
+    if (!$target || (int) $target['isadmin'] === 1) {
         respond(404, ['error' => 'Developer not found']);
     }
 

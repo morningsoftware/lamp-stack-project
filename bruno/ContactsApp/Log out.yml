@@ -4,8 +4,8 @@ info:
   seq: 5
 
 http:
-  method: GET
-  url: ""
+  method: POST
+  url: "{{urlBase}}/api/index.php/auth/logout"
   auth: inherit
 
 settings:
