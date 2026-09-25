@@ -1829,7 +1829,7 @@
 
     const subtitle = isGroup
       ? (others.length + 1) + ' people'
-      : (others[0] ? '@' + escapeHtml(others[0].login || '') : '');
+      : (others[0] ? '@' + escapeHtml(others[0].loginuid || '') : '');
 
     thread.innerHTML =
       '<div class="thread-head">' + avatarHtml(av, 'sm') +
