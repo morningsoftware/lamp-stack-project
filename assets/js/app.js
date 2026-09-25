@@ -1092,13 +1092,31 @@
         } else {
           const list = document.createElement('div');
           list.className = 'stack';
-          list.innerHTML = contacts.map(c => '<article class="contact-row"><div class="contact-main"><h2 class="contact-name">' + escapeHtml(contactName(c)) + '</h2>' +
-            (c.login ? '<p class="faint mono">@' + escapeHtml(c.login) + '</p>' : '') +
-            '<p class="contact-details">' + escapeHtml([c.email,c.phone].filter(Boolean).join(' · ')) + '</p>' +
-            (c.description ? '<p class="muted contact-notes">' + escapeHtml(c.description) + '</p>' : '') + '</div><div class="contact-actions">' +
-            '<button class="btn btn-sm" data-edit="' + Number(c.contactid) + '" aria-label="Edit ' + escapeHtml(contactName(c)) + '">Edit</button>' +
-            '<button class="btn btn-sm btn-danger" data-delete="' + Number(c.contactid) + '" aria-label="Delete ' + escapeHtml(contactName(c)) + '">Delete</button></div></article>').join('');
+          list.innerHTML = contacts.map(c => {
+            const name = contactName(c);
+            const nameHtml = (c.isDeveloper && c.userid)
+              ? '<a class="contact-name-link" href="#/dev/' + Number(c.userid) + '">' + escapeHtml(name) + '</a>'
+              : escapeHtml(name);
+            const emailHtml = c.email
+              ? '<button type="button" class="contact-email" data-email="' + escapeHtml(c.email) + '" title="copy email">' + escapeHtml(c.email) + '</button>'
+              : '';
+            return '<article class="contact-row"><div class="contact-main"><h2 class="contact-name">' + nameHtml + '</h2>' +
+              (c.login ? '<p class="faint mono">@' + escapeHtml(c.login) + '</p>' : '') +
+              '<p class="contact-details">' + [emailHtml, c.phone ? escapeHtml(c.phone) : ''].filter(Boolean).join(' · ') + '</p>' +
+              (c.description ? '<p class="muted contact-notes">' + escapeHtml(c.description) + '</p>' : '') + '</div><div class="contact-actions">' +
+              '<button class="btn btn-sm" data-edit="' + Number(c.contactid) + '" aria-label="Edit ' + escapeHtml(name) + '">Edit</button>' +
+              '<button class="btn btn-sm btn-danger" data-delete="' + Number(c.contactid) + '" aria-label="Delete ' + escapeHtml(name) + '">Delete</button></div></article>';
+          }).join('');
           results.appendChild(list);
+          $$('.contact-email', list).forEach(btn => btn.addEventListener('click', async () => {
+            const email = btn.dataset.email;
+            try {
+              await navigator.clipboard.writeText(email);
+              toast('Email copied', 'success');
+            } catch (e) {
+              toast('Email: ' + email, 'info');
+            }
+          }));
           $$('[data-edit]',list).forEach(button => button.addEventListener('click',async () => {
             button.disabled = true;
             try {
