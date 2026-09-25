@@ -1211,6 +1211,7 @@
       '<div class="profile-meta">' +
       (profile.jobTitle ? '<span class="meta-item">' + ICON.briefcase + escapeHtml(profile.jobTitle) + '</span>' : '') +
       (profile.location ? '<span class="meta-item">' + ICON.location + escapeHtml(profile.location) + '</span>' : '') +
+      (isOwner && state.user.email ? '<span class="meta-item">' + ICON.mail + escapeHtml(state.user.email) + '</span>' : '') +
       (gh && gh.username ? '<a class="meta-item" href="' + escapeHtml(gh.profileUrl) + '" target="_blank" rel="noopener">' + ICON.github + escapeHtml(gh.username) + '</a>' : '') +
       '</div></div>' +
       '<div class="profile-actions">' +
@@ -1222,6 +1223,17 @@
           '<button class="btn btn-primary btn-sm" id="message-btn">' + ICON.mail + ' message</button>') +
       '<a class="btn btn-sm" href="#/compare?a=' + profile.userid + '">' + ICON.compare + ' compare</a>' +
       '</div></section>' +
+      (isOwner
+        ? '<section class="section">' +
+          '<form class="search-form" id="profile-search">' +
+          '<input class="search-input" type="search" aria-label="Search developer directory" placeholder="search developers by name, @login, skill…" autocomplete="off">' +
+          '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
+          '</form>' +
+          '<div class="row wrap mt">' +
+          '<a class="btn btn-primary" href="#/contacts">' + ICON.user + ' my contacts</a>' +
+          (state.user.isAdmin ? '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' : '') +
+          '</div></section>'
+        : '') +
       (profile.bio ? '<p class="bio section">' + escapeHtml(profile.bio) + '</p>' : '') +
       (social ? '<div class="chips section">' + social + '</div>' : '') +
       ((profile.sharedSkills || []).length || sharedLangs.length
@@ -1234,6 +1246,14 @@
       '</div>';
 
     $('#share-btn').addEventListener('click', () => shareProfile(profile));
+    const profileSearch = $('#profile-search');
+    if (profileSearch) {
+      profileSearch.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const q = profileSearch.querySelector('input').value.trim();
+        location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
+      });
+    }
     const followBtn = $('#follow-btn');
     if (followBtn) {
       followBtn.addEventListener('click', async () => {
