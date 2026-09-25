@@ -16,7 +16,7 @@
   --danger: #c0392b;
   --ring: 0 0 0 3px rgba(19, 20, 23, 0.14);
   --radius: 4px;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
