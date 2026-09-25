@@ -61,14 +61,13 @@ if ($sub !== null) {
     respond(404, ['error' => 'Not found']);
 }
 
-$id = requireId($userid, 'user id');
-
 switch (requestMethod()) {
     case 'GET':
-        getProfile($db, $id);
+        // Accept either a numeric user id or a unique login handle.
+        getProfile($db, $userid);
         break;
     case 'PUT':
-        updateProfile($db, $id);
+        updateProfile($db, requireId($userid, 'user id'));
         break;
     default:
         header('Allow: GET, PUT');
@@ -634,7 +633,10 @@ function attachListLanguages($db, &$rows) {
  * @param PDO $db
  * @param int $userid
  */
-function getProfile($db, $userid) {
+function getProfile($db, $identifier) {
+    $numeric = ctype_digit((string) $identifier);
+    $where   = $numeric ? 'u.userid = :identifier' : 'u.loginuid = :identifier';
+
     $stmt = $db->prepare(
         'SELECT u.userid, u.loginuid, u.firstname, u.lastname,
                 u.displayname, u.bio, u.location, u.jobtitle, u.avatar,
@@ -644,9 +646,9 @@ function getProfile($db, $userid) {
                 gp.public_repos, gp.public_gists, gp.last_synced
          FROM users u
          LEFT JOIN github_profiles gp ON gp.userid = u.userid
-         WHERE u.userid = :userid'
+         WHERE ' . $where
     );
-    $stmt->execute([':userid' => $userid]);
+    $stmt->execute([':identifier' => $numeric ? (int) $identifier : (string) $identifier]);
     $profile = $stmt->fetch();
 
     if (!$profile) {

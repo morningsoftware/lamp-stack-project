@@ -117,8 +117,8 @@
     profiles(params = {}) {
       return this.request('GET', '/profiles' + this.query(params));
     },
-    profile(userid) {
-      return this.data('GET', '/profiles/' + userid);
+    profile(identifier) {
+      return this.data('GET', '/profiles/' + encodeURIComponent(identifier));
     },
     updateProfile(userid, fields) {
       return this.data('PUT', '/profiles/' + userid, fields);

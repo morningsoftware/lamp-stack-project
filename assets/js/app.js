@@ -907,14 +907,14 @@
     const followLabel = dev.isFollowing ? 'following' : 'follow';
     const followCls = dev.isFollowing ? 'btn btn-sm follow-btn on' : 'btn btn-sm follow-btn';
     const actions = dev.isSelf
-      ? '<a class="btn btn-sm" href="#/dev/' + dev.userid + '">view profile</a>'
-      : '<a class="btn btn-sm" href="#/dev/' + dev.userid + '">view</a>' +
+      ? '<a class="btn btn-sm" href="#/dev/' + dev.login + '">view profile</a>'
+      : '<a class="btn btn-sm" href="#/dev/' + dev.login + '">view</a>' +
         '<button class="' + followCls + '" data-follow="' + dev.userid + '" data-following="' + (dev.isFollowing ? '1' : '0') + '">' +
         (dev.isFollowing ? '✓ ' + followLabel : '+ ' + followLabel) + '</button>' +
         '<button class="btn btn-sm btn-ghost" data-message="' + dev.userid + '">' + ICON.mail + '</button>';
     return '<article class="dev-card">' +
       '<div class="dev-card-head">' + avatarHtml(dev, 'sm') +
-      '<div class="dev-card-id"><a class="dev-card-name" href="#/dev/' + dev.userid + '">' + escapeHtml(displayNameOf(dev)) + '</a>' +
+      '<div class="dev-card-id"><a class="dev-card-name" href="#/dev/' + dev.login + '">' + escapeHtml(displayNameOf(dev)) + '</a>' +
       '<span class="dev-card-handle">@' + escapeHtml(dev.login) + '</span></div>' +
       (shared ? '<span class="badge accent" title="shared with you">' + shared + ' shared</span>' : '') +
       '</div>' +
@@ -1034,7 +1034,7 @@
     const reasons = []
       .concat((dev.sharedSkills || []).slice(0, 3))
       .concat(uniqueSharedLanguages(dev.sharedSkills, dev.sharedLanguages).slice(0, 2));
-    return '<a class="suggest-card" href="#/dev/' + dev.userid + '">' +
+    return '<a class="suggest-card" href="#/dev/' + dev.login + '">' +
       avatarHtml(dev, 'sm') +
       '<div class="suggest-id"><b>' + escapeHtml(displayNameOf(dev)) + '</b>' +
       '<span class="faint">@' + escapeHtml(dev.login) + '</span></div>' +
@@ -1095,7 +1095,7 @@
           list.innerHTML = contacts.map(c => {
             const name = contactName(c);
             const nameHtml = (c.isDeveloper && c.userid)
-              ? '<a class="contact-name-link" href="#/dev/' + Number(c.userid) + '">' + escapeHtml(name) + '</a>'
+              ? '<a class="contact-name-link" href="#/dev/' + escapeHtml(c.login) + '">' + escapeHtml(name) + '</a>'
               : escapeHtml(name);
             const emailHtml = c.email
               ? '<button type="button" class="contact-email" data-email="' + escapeHtml(c.email) + '" title="copy email">' + escapeHtml(c.email) + '</button>'
@@ -1304,7 +1304,10 @@
       // Lazily refresh stale GitHub data in the background.
       if (full.stale) {
         API.syncGithub({ userid: profile.userid }).then(() => {
-          if (parseHash().parts[1] === String(profile.userid)) viewProfile(root, profile.userid);
+          const current = parseHash().parts[1];
+          if (current === profile.login || current === String(profile.userid)) {
+            viewProfile(root, profile.userid);
+          }
         }).catch(() => {});
       }
 
@@ -1516,7 +1519,7 @@
       '<div style="width:100%;text-align:left"><h4 class="section-title">languages</h4>' + miniLang(dev) + '</div>' +
       '<div style="width:100%;text-align:left"><h4 class="section-title">skills</h4><div class="chips">' +
       skillChips(dev.skills) + '</div></div>' +
-      '<a class="btn btn-sm" href="#/dev/' + dev.userid + '">view profile</a>' +
+      '<a class="btn btn-sm" href="#/dev/' + dev.login + '">view profile</a>' +
       '</div>';
 
     const totalStarsBoth = (devA.totalStars || 0) + (devB.totalStars || 0);
@@ -2329,7 +2332,7 @@
           '<td>' + (u.githubUsername ? escapeHtml(u.githubUsername) : '<span class="faint">—</span>') + '</td>' +
           '<td>' + (u.isActive ? 'active' : 'disabled') + '</td>' +
           '<td class="row-actions">' +
-          '<a class="btn btn-sm btn-ghost" href="#/dev/' + u.userid + '">view</a>' +
+          '<a class="btn btn-sm btn-ghost" href="#/dev/' + u.login + '">view</a>' +
           '<a class="btn btn-sm" href="#/admin?tab=contacts&amp;userid=' + u.userid + '">contacts</a>' +
           '<button class="btn btn-sm" data-password="' + u.userid + '">change password</button>' +
           '<button class="btn btn-sm" data-reset="' + u.userid + '">reset link</button>' +
