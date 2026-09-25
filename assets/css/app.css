@@ -482,6 +482,7 @@ svg.spark { width: 76px; height: 18px; }
 .bubble.me { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .composer { padding: 12px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: flex-end; }
 .composer .textarea { min-height: 46px; max-height: 130px; }
+.composer .btn-icon { width: 46px; height: 46px; }
 
 /* ---------- Settings ---------- */
 .settings-tabs { margin-top: 18px; }
