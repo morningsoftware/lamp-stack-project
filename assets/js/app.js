@@ -630,7 +630,6 @@
         '</section>' +
         '<div class="home-hero-actions">' +
         '<a class="btn btn-primary" href="#/contacts">' + ICON.user + ' my contacts</a>' +
-        '<a class="btn" href="#/browse">' + ICON.search + ' browse directory</a>' +
         (user.isAdmin ? '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' : '') +
         '</div>' +
         '<form class="search-form" id="search-form">' +
@@ -638,7 +637,6 @@
         'autocomplete="off" value="' + escapeHtml(query.q || '') + '">' +
         '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
         '</form>' +
-        '<p class="home-hint">jump to <a href="#/contacts">saved contacts</a> or explore developers with filters</p>' +
         '</div></div>';
 
       const form = $('#search-form');
