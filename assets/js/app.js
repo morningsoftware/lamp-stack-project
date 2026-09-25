@@ -378,10 +378,12 @@
   function renderProfileSlot() {
     const slot = $('#profile-slot');
     const navContacts = $('#nav-contacts');
+    const navMessages = $('#nav-messages');
     const navAdmin = $('#nav-admin');
 
     if (!isLoggedIn()) {
       if (navContacts) navContacts.classList.add('hidden');
+      if (navMessages) navMessages.classList.add('hidden');
       if (navAdmin) navAdmin.classList.add('hidden');
       slot.innerHTML =
         '<div class="row" style="gap:8px">' +
@@ -394,6 +396,7 @@
     }
 
     if (navContacts) navContacts.classList.remove('hidden');
+    if (navMessages) navMessages.classList.remove('hidden');
 
     const user = state.user || {};
     if (navAdmin) {
@@ -402,26 +405,19 @@
     }
 
     slot.innerHTML =
+      '<a class="profile-chip" href="#/" title="your profile">' + avatarHtml(user, 'sm') +
+      '<span class="profile-chip-text"><b>' + escapeHtml(displayNameOf(user)) + '</b>' +
+      '<span class="faint">@' + escapeHtml(user.login) + '</span></span></a>' +
       '<div class="user-menu">' +
-      '<button class="btn btn-icon btn-ghost" id="profile-btn" title="account" aria-label="account">' + avatarHtml(user, 'xs') + '</button>' +
+      '<button class="btn btn-icon btn-ghost" id="menu-btn" aria-label="account menu" aria-haspopup="true">' + ICON.chevron + '</button>' +
       '<div class="menu hidden" id="user-menu">' +
-      '<div class="menu-head"><b>' + escapeHtml(displayNameOf(user)) + '</b><span class="faint">@' + escapeHtml(user.login) + '</span>' +
-      (user.isAdmin ? ' <span class="badge accent" style="font-size:10px;padding:2px 6px">ADMIN</span>' : '') +
-      '</div>' +
-      '<div class="sep"></div>' +
-      '<a href="#/contacts">' + ICON.user + ' my contacts</a>' +
-      '<a href="#/browse">' + ICON.search + ' browse directory</a>' +
-      '<a href="#/messages">' + ICON.mail + ' messages</a>' +
-      '<a href="#/compare">' + ICON.compare + ' compare</a>' +
-      '<a href="#/dev/' + user.userid + '">' + ICON.user + ' my profile</a>' +
       '<a href="#/settings">' + ICON.settings + ' settings</a>' +
-      (user.isAdmin ? '<a href="#/admin">' + ICON.shield + ' admin</a>' : '') +
       '<div class="sep"></div>' +
       '<button id="menu-logout">' + ICON.logout + ' sign out</button>' +
       '</div></div>';
 
     const menu = $('#user-menu');
-    $('#profile-btn').addEventListener('click', (e) => {
+    $('#menu-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       menu.classList.toggle('hidden');
     });

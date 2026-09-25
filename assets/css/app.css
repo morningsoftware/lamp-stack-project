@@ -560,10 +560,13 @@ svg.spark { width: 76px; height: 18px; }
 @keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ---------- User menu ---------- */
+.profile-chip { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: var(--radius); text-decoration: none; color: var(--text); }
+.profile-chip:hover { background: var(--surface-2); }
+.profile-chip-text { display: grid; line-height: 1.2; min-width: 0; }
+.profile-chip-text b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-chip-text .faint { font-size: 11px; }
 .user-menu { position: relative; }
-.menu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 210px; padding: 6px; display: grid; gap: 2px; z-index: 60; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); animation: pop 0.15s ease-out; }
-.menu-head { display: grid; padding: 8px 10px; font-size: 13px; }
-.menu-head span { font-size: 12px; }
+.menu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 150px; padding: 6px; display: grid; gap: 2px; z-index: 60; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); animation: pop 0.15s ease-out; }
 .menu button, .menu a { text-align: left; padding: 9px 10px; border-radius: var(--radius); border: none; background: none; cursor: pointer; font-size: 13px; font-family: var(--mono); display: flex; gap: 10px; align-items: center; color: var(--text); }
 .menu button:hover, .menu a:hover { background: var(--surface-2); }
 .menu .sep { height: 1px; background: var(--line); margin: 4px 2px; }
