@@ -391,8 +391,8 @@
       if (navSearch) navSearch.classList.add('hidden');
       slot.innerHTML =
         '<div class="row" style="gap:8px">' +
-        '<button class="btn btn-sm btn-ghost" id="nav-login-btn">sign in</button>' +
-        '<button class="btn btn-sm btn-primary" id="nav-reg-btn">register</button>' +
+        '<button class="btn btn-ghost" id="nav-login-btn">sign in</button>' +
+        '<button class="btn btn-primary" id="nav-reg-btn">register</button>' +
         '</div>';
       $('#nav-login-btn').addEventListener('click', () => openAuthModal('login'));
       $('#nav-reg-btn').addEventListener('click', () => openAuthModal('register'));
