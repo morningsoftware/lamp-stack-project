@@ -22,4 +22,3 @@ jobs:
             cd /var/www/html
             git fetch origin
             git reset --hard origin/main
-            sudo systemctl reload apache2
