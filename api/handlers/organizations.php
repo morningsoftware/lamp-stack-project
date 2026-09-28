@@ -309,7 +309,7 @@ function organizationRoles($db, $organizationid, $userid) {
             'name'           => $row['name'],
             'description'    => $row['description'],
             'status'         => $row['status'],
-            'statusLabel'    => $row['status'] === 'open' ? 'Accepting applications' : 'Closed',
+            'statusLabel'    => $row['status'] === 'open' ? 'accepting applications' : 'closed',
             'createdAt'      => $row['created_at'],
             'closedAt'       => $row['closed_at'],
             'applicantCount' => (int) $row['applicant_count'],
