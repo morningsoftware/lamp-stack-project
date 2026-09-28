@@ -473,7 +473,7 @@
     if (new TextEncoder().encode(data.newPassword).length > 72) throw new Error('Use a password of at most 72 bytes.');
   }
 
-  function formDialog(title, description, fields, submitLabel, onSubmit, footer = '') {
+  function formDialog(title, description, fields, submitLabel, onSubmit, footer = '', showCancel = true) {
     const host = $('#modal-root');
     if (!host.firstElementChild) modalOpener = document.activeElement;
     document.body.style.overflow = 'hidden';
@@ -482,7 +482,7 @@
       '<p class="sub" id="dialog-description">' + escapeHtml(description) + '</p>' +
       '<form id="dialog-form" class="form-grid">' + fields +
       '<p class="form-error hidden" role="alert" id="dialog-error"></p>' +
-      '<div class="dialog-actions"><button class="btn" type="button" data-close>cancel</button>' +
+      '<div class="dialog-actions">' + (showCancel ? '<button class="btn" type="button" data-close>cancel</button>' : '') +
       '<button class="btn btn-primary" type="submit">' + escapeHtml(submitLabel) + '</button></div></form>' + footer + '</section></div>';
     const form = $('#dialog-form');
     const error = $('#dialog-error');
@@ -2599,10 +2599,10 @@
     if (!share) return '';
     if (share.type === 'role') {
       const label = (share.name || 'role') + (share.organization ? ' · ' + share.organization : '');
-      return '<a class="share-card" href="#/roles/' + share.roleid + '">' + ICON.briefcase + ' ' + escapeHtml(label) + '</a>';
+      return '<a class="share-card" href="#/roles/' + share.roleid + '">' + escapeHtml(label) + '</a>';
     }
     return '<a class="share-card" href="#/orgs/' + encodeURIComponent(share.slug || '') + '">' +
-      ICON.briefcase + ' ' + escapeHtml(share.name || 'organization') + '</a>';
+      escapeHtml(share.name || 'organization') + '</a>';
   }
 
   function openShareModal(kind, id, label) {
@@ -2680,7 +2680,7 @@
       '<a class="muted" href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a>' +
       (role.description ? '<p class="listing-desc">' + escapeHtml(role.description) + '</p>' : '') +
       (skills ? '<div class="chips">' + skills + '</div>' : '') +
-      '<div class="row">' +
+      '<div class="row listing-actions">' +
       '<span class="faint">' + role.applicantCount + (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' +
       apply +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' + escapeHtml(role.name) + '">' +
@@ -2756,7 +2756,8 @@
     const roles = await API.roles(params) || [];
 
     root.innerHTML =
-      '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' roles</h1></div>' +
+      '<div class="container">' +
+      '<div class="spread"><h1 class="page-title">roles</h1></div>' +
       '<p class="sub">Open roles are accepting applications. Apply once, or share a listing in a message.</p>' +
       '<div class="row mt">' +
       '<a class="btn btn-sm' + (status === 'open' ? ' btn-primary' : '') + '" href="#/roles?status=open">accepting applications</a>' +
@@ -2768,6 +2769,7 @@
       '<button class="btn" type="submit">' + ICON.search + '</button></form>' +
       '<div class="card-grid section">' +
       (roles.length ? roles.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
+      '</div>' +
       '</div>';
 
     $('#role-search').addEventListener('submit', (e) => {
@@ -2805,6 +2807,7 @@
       : '';
 
     root.innerHTML =
+      '<div class="container">' +
       '<a class="btn btn-sm btn-ghost" href="#/roles">' + ICON.back + ' roles</a>' +
       '<div class="spread mt"><h1 class="page-title">' + escapeHtml(role.name) + '</h1>' +
       '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.statusLabel) + '</span></div>' +
@@ -2814,7 +2817,8 @@
       '<div class="row mt"><span class="faint">' + role.applicantCount +
       (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' + action +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' +
-      escapeHtml(role.name) + '">' + ICON.share + ' share</button></div>' + applicants;
+      escapeHtml(role.name) + '">' + ICON.share + ' share</button></div>' + applicants +
+      '</div>';
 
     const closeBtn = $('#close-role');
     const openBtn = $('#open-role');
@@ -2854,7 +2858,8 @@
     const others = (all || []).filter((org) => !mineIds.has(org.organizationid));
 
     root.innerHTML =
-      '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' organizations</h1>' +
+      '<div class="container">' +
+      '<div class="spread"><h1 class="page-title">organizations</h1>' +
       '<button class="btn btn-primary" type="button" id="create-org">' + ICON.plus + ' new organization</button></div>' +
       '<p class="sub">An organization uses your existing login. You create it, and you are the owner.</p>' +
       '<section class="section"><h2 class="section-title">yours</h2><div class="card-grid">' +
@@ -2862,7 +2867,8 @@
       '</div></section>' +
       '<section class="section"><h2 class="section-title">directory</h2><div class="card-grid">' +
       (others.length ? others.map(orgCard).join('') : '<div class="empty"><p>No other organizations yet.</p></div>') +
-      '</div></section>';
+      '</div></section>' +
+      '</div>';
 
     $('#create-org').addEventListener('click', openCreateOrganization);
   }
@@ -2886,6 +2892,7 @@
       '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.status) + '</span></div>').join('');
 
     root.innerHTML =
+      '<div class="container">' +
       '<a class="btn btn-sm btn-ghost" href="#/orgs">' + ICON.back + ' organizations</a>' +
       '<div class="spread mt"><h1 class="page-title">' + escapeHtml(org.name) + '</h1>' +
       '<div class="row">' +
@@ -2901,7 +2908,8 @@
       (isOwner ? '<button class="btn btn-sm" type="button" id="add-member">' + ICON.plus + ' add member</button>' : '') +
       '</div><div class="stack">' + (members || '<p class="muted">No members.</p>') + '</div></section>' +
       '<section class="section"><h2 class="section-title">roles</h2><div class="stack">' +
-      (roles || '<p class="muted">No roles posted yet.</p>') + '</div></section>';
+      (roles || '<p class="muted">No roles posted yet.</p>') + '</div></section>' +
+      '</div>';
 
     if (isOwner) {
       $('#edit-org').addEventListener('click', () => openEditOrganization(org));
