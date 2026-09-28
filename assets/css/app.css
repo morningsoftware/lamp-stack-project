@@ -121,7 +121,7 @@ svg.spark { width: 76px; height: 18px; }
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius);
   background: var(--surface); color: var(--text); cursor: pointer;
-  font-size: 13px; font-weight: 550; font-family: var(--mono);
+  font-size: 13px; font-weight: 600; font-family: var(--mono);
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
 }
 .btn:hover { background: var(--surface-2); border-color: var(--text); }
@@ -223,7 +223,7 @@ svg.spark { width: 76px; height: 18px; }
 .dev-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .dev-card-head { display: flex; align-items: center; gap: 12px; }
 .dev-card-id { display: grid; min-width: 0; }
-.dev-card-name { font-weight: 650; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev-card-name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dev-card-name:hover { text-decoration: underline; }
 .dev-card-handle { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .dev-card-meta { display: grid; gap: 4px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
@@ -245,7 +245,7 @@ svg.spark { width: 76px; height: 18px; }
 .ms-tokens { display: contents; }
 .ms-token {
   display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono);
-  font-size: 11.5px; padding: 3px 5px 3px 7px; border-radius: 2px;
+  font-size: 12px; padding: 3px 5px 3px 7px; border-radius: 2px;
   background: var(--surface-2); color: var(--text);
 }
 .ms-token .x {
@@ -270,7 +270,7 @@ svg.spark { width: 76px; height: 18px; }
   padding: 8px 10px; border: none; background: none; cursor: pointer;
   font-size: 13px; font-family: var(--mono); color: var(--text);
 }
-.ms-option .s-login { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+.ms-option .s-login { margin-left: auto; font-size: 12px; color: var(--faint); }
 .ms-option:hover { background: var(--surface-2); }
 
 .suggest-head { margin-bottom: 10px; }
@@ -279,13 +279,13 @@ svg.spark { width: 76px; height: 18px; }
 .suggest-card:hover { border-color: var(--line-strong); }
 .suggest-id { display: grid; min-width: 0; }
 .suggest-reasons { display: flex; gap: 5px; flex-wrap: wrap; width: 100%; }
-.mini-chip { font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: 2px; background: var(--surface-2); color: var(--muted); }
+.mini-chip { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 2px; background: var(--surface-2); color: var(--muted); }
 .pager { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 20px; }
 
 /* ---------- Following ---------- */
 .contact-row { display: flex; align-items: center; gap: 14px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .contact-main { flex: 1; min-width: 0; display: grid; }
-.contact-name { font-weight: 650; }
+.contact-name { font-weight: 600; }
 .contact-name:hover { text-decoration: underline; }
 .contact-sub { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .contact-actions { display: flex; gap: 8px; }
@@ -313,11 +313,11 @@ svg.spark { width: 76px; height: 18px; }
 }
 .suggestion {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px;
-  background: none; border: none; cursor: pointer; text-align: left; font-size: 13.5px;
+  background: none; border: none; cursor: pointer; text-align: left; font-size: 13px;
 }
 .suggestion:hover { background: var(--surface-2); }
 .suggestion .s-name { font-weight: 600; }
-.suggestion .s-login { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+.suggestion .s-login { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--faint); }
 
 /* ---------- Chips ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -370,7 +370,7 @@ svg.spark { width: 76px; height: 18px; }
 .cell.l4 { background: var(--accent); opacity: 1; }
 .heatmap-meta {
   margin-top: 8px; display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--faint); flex-wrap: wrap;
+  gap: 12px; font-family: var(--mono); font-size: 12px; color: var(--faint); flex-wrap: wrap;
 }
 .heatmap-legend { display: inline-flex; align-items: center; gap: 3px; }
 
@@ -421,7 +421,7 @@ svg.spark { width: 76px; height: 18px; }
 .legend { display: grid; gap: 8px; }
 .legend-item { display: flex; align-items: center; gap: 10px; font-size: 13px; font-family: var(--mono); }
 .legend-item .dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
-.legend-item .lname { font-weight: 550; }
+.legend-item .lname { font-weight: 600; }
 .legend-item .lcount { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* ---------- Repositories ---------- */
@@ -461,7 +461,7 @@ svg.spark { width: 76px; height: 18px; }
 .mini-stats { display: flex; gap: 20px; justify-content: center; }
 .mini-stat { display: grid; gap: 2px; }
 .mini-stat b { font-family: var(--mono); font-size: 16px; }
-.mini-stat span { font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--mono); }
+.mini-stat span { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--mono); }
 
 .overlap { padding: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); display: grid; gap: 22px; }
 .overlap-head { display: flex; align-items: center; gap: 12px; }
@@ -494,7 +494,7 @@ svg.spark { width: 76px; height: 18px; }
 .thread-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
 .thread-id { min-width: 0; }
 .thread-actions { margin-left: auto; display: flex; gap: 8px; }
-.bubble-sender { display: block; font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--faint); margin-bottom: 3px; }
+.bubble-sender { display: block; font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--faint); margin-bottom: 3px; }
 .thread-body { padding: 18px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; max-height: 56vh; }
 .bubble { max-width: min(72%, 520px); padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius); font-size: 14px; line-height: 1.45; word-wrap: break-word; background: var(--surface); align-self: flex-start; }
 .bubble.me { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -536,7 +536,7 @@ svg.spark { width: 76px; height: 18px; }
 /* ---------- Admin ---------- */
 .admin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .stat-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
-.stat-sub { margin-top: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+.stat-sub { margin-top: 6px; font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .admin-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); padding: 8px 10px; border-bottom: 1px solid var(--line-strong); }
@@ -673,7 +673,7 @@ input[readonly] { background:var(--surface-2); color:var(--muted); }
 .listing-card { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .listing-card.spread { flex-direction: row; }
 .listing-actions { margin-top: auto; }
-.listing-card h3 { margin: 0; font-size: 16px; font-weight: 650; }
+.listing-card h3 { margin: 0; font-size: 16px; font-weight: 600; }
 .listing-desc {
   margin: 0; color: var(--muted); font-size: 14px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
