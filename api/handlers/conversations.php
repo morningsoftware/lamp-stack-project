@@ -388,11 +388,17 @@ function listMessages($db, $conversationid, $userid) {
     $before = isset($_GET['before']) ? (int) $_GET['before'] : 0;
 
     $sql = 'SELECT m.messageid, m.sender_userid, m.body, m.created_at,
+                   m.roleid, m.organizationid,
                    u.loginuid AS sender_login, u.displayname AS sender_displayname,
-                   COALESCE(gp.avatar_url, u.avatar) AS sender_avatar
+                   COALESCE(gp.avatar_url, u.avatar) AS sender_avatar,
+                   r.name AS role_name, role_org.name AS role_org_name, role_org.slug AS role_org_slug,
+                   shared_org.name AS shared_org_name, shared_org.slug AS shared_org_slug
             FROM messages m
             JOIN users u ON u.userid = m.sender_userid
             LEFT JOIN github_profiles gp ON gp.userid = u.userid
+            LEFT JOIN roles r ON r.roleid = m.roleid
+            LEFT JOIN organizations role_org ON role_org.organizationid = r.organizationid
+            LEFT JOIN organizations shared_org ON shared_org.organizationid = m.organizationid
             WHERE m.conversationid = :cid';
     $params = [':cid' => $conversationid];
 
@@ -402,14 +408,44 @@ function listMessages($db, $conversationid, $userid) {
     }
     $sql .= ' ORDER BY m.messageid DESC LIMIT :limit';
 
-    $stmt = $db->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_INT);
+    try {
+        $stmt = $db->prepare($sql);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value, PDO::PARAM_INT);
+        }
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        $missing = $e->getCode() === '42S02' || $e->getCode() === '42S22'
+            || strpos($e->getMessage(), 'Base table or view not found') !== false
+            || strpos($e->getMessage(), 'Unknown column') !== false;
+        if (!$missing) {
+            error_log('List messages error: ' . $e->getMessage());
+            respond(500, ['error' => 'Could not load messages']);
+        }
+        $plain = 'SELECT m.messageid, m.sender_userid, m.body, m.created_at,
+                         u.loginuid AS sender_login, u.displayname AS sender_displayname,
+                         COALESCE(gp.avatar_url, u.avatar) AS sender_avatar
+                  FROM messages m
+                  JOIN users u ON u.userid = m.sender_userid
+                  LEFT JOIN github_profiles gp ON gp.userid = u.userid
+                  WHERE m.conversationid = :cid';
+        if ($before > 0) {
+            $plain .= ' AND m.messageid < :before';
+        }
+        $plain .= ' ORDER BY m.messageid DESC LIMIT :limit';
+        $stmt = $db->prepare($plain);
+        $stmt->bindValue(':cid', $conversationid, PDO::PARAM_INT);
+        if ($before > 0) {
+            $stmt->bindValue(':before', $before, PDO::PARAM_INT);
+        }
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
     }
-    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-    $stmt->execute();
 
-    $messages = array_reverse($stmt->fetchAll());
+    $messages = array_map('shapeSharedMessage', array_reverse($rows));
     respond(200, ['data' => $messages]);
 }
 
@@ -425,9 +461,17 @@ function sendMessage($db, $conversationid, $userid) {
 
     $body = getRequestBody();
     requireFields($body, ['body']);
+    $share = messageShareTarget($db, $body);
 
     try {
-        $messageid = insertMessage($db, $conversationid, $userid, clean($body['body']));
+        $messageid = insertMessage(
+            $db,
+            $conversationid,
+            $userid,
+            clean($body['body']),
+            $share['roleid'],
+            $share['organizationid']
+        );
     } catch (PDOException $e) {
         error_log('Send message error: ' . $e->getMessage());
         respond(500, ['error' => 'Could not send message']);
@@ -490,12 +534,91 @@ function deleteMessage($db, $messageid) {
  * @param string $body
  * @return int New message id
  */
-function insertMessage($db, $conversationid, $userid, $body) {
-    $stmt = $db->prepare(
-        'INSERT INTO messages (conversationid, sender_userid, body)
-         VALUES (:cid, :userid, :body)'
+function messageShareTarget($db, $body) {
+    $roleid = isset($body['roleid']) ? (int) $body['roleid'] : 0;
+    $organizationid = isset($body['organizationid']) ? (int) $body['organizationid'] : 0;
+    if ($roleid > 0 && $organizationid > 0) {
+        respond(400, ['error' => 'A message can share a role or an organization, not both']);
+    }
+    if ($roleid > 0) {
+        $stmt = $db->prepare('SELECT roleid FROM roles WHERE roleid = :id LIMIT 1');
+        $stmt->execute([':id' => $roleid]);
+        if (!$stmt->fetch()) {
+            respond(404, ['error' => 'Role not found']);
+        }
+        return ['roleid' => $roleid, 'organizationid' => null];
+    }
+    if ($organizationid > 0) {
+        $stmt = $db->prepare('SELECT organizationid FROM organizations WHERE organizationid = :id LIMIT 1');
+        $stmt->execute([':id' => $organizationid]);
+        if (!$stmt->fetch()) {
+            respond(404, ['error' => 'Organization not found']);
+        }
+        return ['roleid' => null, 'organizationid' => $organizationid];
+    }
+    return ['roleid' => null, 'organizationid' => null];
+}
+
+function shapeSharedMessage($row) {
+    $share = null;
+    if (!empty($row['roleid'])) {
+        $share = [
+            'type'         => 'role',
+            'roleid'       => (int) $row['roleid'],
+            'name'         => $row['role_name'],
+            'organization' => $row['role_org_name'],
+            'slug'         => $row['role_org_slug'],
+        ];
+    } elseif (!empty($row['organizationid'])) {
+        $share = [
+            'type'           => 'organization',
+            'organizationid' => (int) $row['organizationid'],
+            'name'           => $row['shared_org_name'],
+            'slug'           => $row['shared_org_slug'],
+        ];
+    }
+    unset(
+        $row['role_name'],
+        $row['role_org_name'],
+        $row['role_org_slug'],
+        $row['shared_org_name'],
+        $row['shared_org_slug']
     );
-    $stmt->execute([':cid' => $conversationid, ':userid' => $userid, ':body' => $body]);
+    $row['share'] = $share;
+    return $row;
+}
+
+function insertMessage($db, $conversationid, $userid, $body, $roleid = null, $organizationid = null) {
+    $stmt = $db->prepare(
+        'INSERT INTO messages (conversationid, sender_userid, body, roleid, organizationid)
+         VALUES (:cid, :userid, :body, :roleid, :organizationid)'
+    );
+    $stmt->bindValue(':cid', $conversationid, PDO::PARAM_INT);
+    $stmt->bindValue(':userid', $userid, PDO::PARAM_INT);
+    $stmt->bindValue(':body', $body, PDO::PARAM_STR);
+    if ($roleid === null) {
+        $stmt->bindValue(':roleid', null, PDO::PARAM_NULL);
+    } else {
+        $stmt->bindValue(':roleid', $roleid, PDO::PARAM_INT);
+    }
+    if ($organizationid === null) {
+        $stmt->bindValue(':organizationid', null, PDO::PARAM_NULL);
+    } else {
+        $stmt->bindValue(':organizationid', $organizationid, PDO::PARAM_INT);
+    }
+    try {
+        $stmt->execute();
+    } catch (PDOException $e) {
+        $missing = $e->getCode() === '42S22' || strpos($e->getMessage(), 'Unknown column') !== false;
+        if (!$missing || $roleid !== null || $organizationid !== null) {
+            throw $e;
+        }
+        $legacy = $db->prepare(
+            'INSERT INTO messages (conversationid, sender_userid, body)
+             VALUES (:cid, :userid, :body)'
+        );
+        $legacy->execute([':cid' => $conversationid, ':userid' => $userid, ':body' => $body]);
+    }
     $messageid = (int) $db->lastInsertId();
 
     $touch = $db->prepare('UPDATE conversations SET last_message_at = NOW() WHERE conversationid = :cid');
