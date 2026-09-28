@@ -48,6 +48,9 @@
         catch (_) { throw new Error('The server returned an unexpected response. Please try again.'); }
         if (!res.ok) {
           const unavailable = res.status === 404 || res.status === 405;
+          if (res.status === 503 && payload && payload.maintenance) {
+            window.dispatchEvent(new Event('maintenance-mode'));
+          }
           const err = new Error(unavailable ? 'This action is not available on the server yet.' :
             ((payload && payload.error) || 'Request failed (' + res.status + ').'));
           err.status = res.status;
@@ -88,6 +91,10 @@
       });
       const str = qs.toString();
       return str ? '?' + str : '';
+    },
+
+    ping() {
+      return this.data('GET', '/ping');
     },
 
     /* auth */

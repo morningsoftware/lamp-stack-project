@@ -114,7 +114,7 @@
 
   /* ---------------- State ---------------- */
 
-  const state = { user: null, profiles: [], convos: [], facets: null };
+  const state = { user: null, profiles: [], convos: [], facets: null, maintenance: false };
   let profileMenuBound = false;
   const isLoggedIn = () => !!state.user;
 
@@ -600,6 +600,7 @@
   }
 
   async function render() {
+    if (state.maintenance) { renderMaintenance(); return; }
     const { parts, query } = parseHash();
     const root = $('#app');
     const resource = parts[0] || 'home';
@@ -624,8 +625,17 @@
       if (resource === 'reset') return await viewReset(root, query);
       root.innerHTML = emptyState('404', 'not found', 'That page does not exist.');
     } catch (err) {
+      if (state.maintenance) return;
       root.innerHTML = emptyState('!', 'something went wrong', err.message || 'Unexpected error.');
     }
+  }
+
+  function renderMaintenance() {
+    $('#app').innerHTML =
+      '<div class="home"><div class="home-inner" style="max-width:480px;text-align:center">' +
+      '<h1 class="home-title">maintenance</h1>' +
+      '<p class="home-sub">We are making some improvements. Please check back shortly.</p>' +
+      '</div></div>';
   }
 
   /* ---------------- Landing ---------------- */
@@ -2545,6 +2555,10 @@
     toast('Your session ended. Please sign in again.', 'error');
     render();
   });
+  window.addEventListener('maintenance-mode', () => {
+    state.maintenance = true;
+    renderMaintenance();
+  });
 
   (async function init() {
     initTheme();
@@ -2553,6 +2567,8 @@
       const q = $('#nav-search input').value.trim();
       location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
     });
+    try { await API.ping(); } catch (e) { /* maintenance-mode event handles the UI */ }
+    if (state.maintenance) return;
     await resolveSession();
     renderProfileSlot();
     await render();
