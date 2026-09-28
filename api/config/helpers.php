@@ -377,3 +377,25 @@ function appBaseUrl() {
     }
     return rtrim($base, '/');
 }
+
+/**
+ * True after migrate_applications.sql has added application decisions
+ * and organization invitations.
+ *
+ * @param PDO $db
+ * @return bool
+ */
+function decisionReady($db) {
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+    try {
+        $column = $db->query("SHOW COLUMNS FROM applications LIKE 'decision'");
+        $table = $db->query("SHOW TABLES LIKE 'organization_invitations'");
+        $ready = (bool) $column->fetch() && (bool) $table->fetch();
+    } catch (PDOException $e) {
+        $ready = false;
+    }
+    return $ready;
+}

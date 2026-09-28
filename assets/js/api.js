@@ -269,6 +269,18 @@
     withdrawApplication(roleid) {
       return this.data('DELETE', '/roles/' + roleid + '/apply');
     },
+    decideApplication(roleid, userid, decision) {
+      return this.data('PUT', '/roles/' + roleid + '/applicants/' + userid, { decision });
+    },
+    invitations() {
+      return this.data('GET', '/organizations/invitations');
+    },
+    acceptInvitation(invitationid) {
+      return this.data('POST', '/organizations/invitations/' + invitationid + '/accept');
+    },
+    declineInvitation(invitationid) {
+      return this.data('POST', '/organizations/invitations/' + invitationid + '/decline');
+    },
 
     /* admin */
     adminStats() {
