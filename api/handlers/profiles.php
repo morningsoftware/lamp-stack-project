@@ -315,7 +315,8 @@ function profileFacets($db) {
          FROM github_repositories gr
          JOIN github_profiles g ON g.githubid = gr.githubid
          JOIN users u ON u.userid = g.userid
-         WHERE u.isadmin = 0 AND gr.language IS NOT NULL AND gr.language <> ''
+         WHERE u.isadmin = 0 AND g.github_id IS NOT NULL
+           AND gr.language IS NOT NULL AND gr.language <> ''
          GROUP BY gr.language
          ORDER BY developers DESC, gr.language ASC"
     )->fetchAll();
