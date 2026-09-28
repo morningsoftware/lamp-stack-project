@@ -380,15 +380,19 @@
     const navContacts = $('#nav-contacts');
     const navMessages = $('#nav-messages');
     const navAdmin = $('#nav-admin');
+    const navBrowse = $('#nav-browse');
+    const navSearch = $('#nav-search');
 
     if (!isLoggedIn()) {
       if (navContacts) navContacts.classList.add('hidden');
       if (navMessages) navMessages.classList.add('hidden');
       if (navAdmin) navAdmin.classList.add('hidden');
+      if (navBrowse) navBrowse.classList.add('hidden');
+      if (navSearch) navSearch.classList.add('hidden');
       slot.innerHTML =
         '<div class="row" style="gap:8px">' +
-        '<button class="btn btn-sm btn-ghost" id="nav-login-btn">sign in</button>' +
-        '<button class="btn btn-sm btn-primary" id="nav-reg-btn">register</button>' +
+        '<button class="btn btn-ghost" id="nav-login-btn">sign in</button>' +
+        '<button class="btn btn-primary" id="nav-reg-btn">register</button>' +
         '</div>';
       $('#nav-login-btn').addEventListener('click', () => openAuthModal('login'));
       $('#nav-reg-btn').addEventListener('click', () => openAuthModal('register'));
@@ -397,6 +401,8 @@
 
     if (navContacts) navContacts.classList.remove('hidden');
     if (navMessages) navMessages.classList.remove('hidden');
+    if (navBrowse) navBrowse.classList.remove('hidden');
+    if (navSearch) navSearch.classList.remove('hidden');
 
     const user = state.user || {};
     if (navAdmin) {
@@ -515,7 +521,7 @@
     const fields = field('login', registering ? 'Username' : 'Username or email', {required:true, maxlength:registering ? 50 : 255, minlength:registering ? 3 : 1, autocomplete:'username'}) +
       (registering ? field('email','Email',{type:'email',required:true,maxlength:255,autocomplete:'email'}) +
         '<div class="form-columns">' + field('firstName','First name',{maxlength:50,autocomplete:'given-name'}) + field('lastName','Last name',{maxlength:50,autocomplete:'family-name'}) + '</div>' +
-        field('githubUsername','GitHub username',{required:true,maxlength:39,placeholder:'Your GitHub username','aria-describedby':'github-help'}) +
+        field('githubUsername','GitHub username',{required:true,maxlength:39,'aria-describedby':'github-help'}) +
         '<p class="form-hint" id="github-help">Use a GitHub account you own that is not already linked to another account.</p>' + passwordFields() :
         field('password','Password',{type:'password',required:true,autocomplete:'current-password'}));
     formDialog(registering ? 'Create account' : 'Sign in', registering ? 'Keep your contacts together and connect with your team.' : 'Welcome back. Sign in to manage your contacts.', fields,
@@ -540,6 +546,18 @@
       }, '<p class="auth-switch">' + (registering ? 'Already have an account?' : 'New here?') +
       ' <button class="text-button" type="button" id="auth-switch">' + (registering ? 'Sign in' : 'Create account') + '</button></p>');
     $('#auth-switch').addEventListener('click', () => openAuthModal(registering ? 'login' : 'register'));
+  }
+
+  function messageDialog(title, text, actions) {
+    const host = $('#modal-root');
+    if (!host.firstElementChild) modalOpener = document.activeElement;
+    document.body.style.overflow = 'hidden';
+    host.innerHTML = '<div class="modal" id="modal-backdrop"><section class="modal-card message-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">' +
+      '<div class="spread"><h2 id="dialog-title">' + escapeHtml(title) + '</h2><button class="btn btn-icon btn-ghost" type="button" data-close aria-label="Close dialog">' + ICON.x + '</button></div>' +
+      '<p class="sub" id="dialog-description">' + escapeHtml(text) + '</p>' +
+      (actions ? '<div class="dialog-actions">' + actions + '</div>' : '') + '</section></div>';
+    $$('[data-close]', host).forEach(button => button.addEventListener('click', closeModal));
+    $('#modal-backdrop').addEventListener('click', e => { if (e.target.id === 'modal-backdrop') closeModal(); });
   }
 
   function closeModal() {
@@ -651,11 +669,7 @@
         toast('Welcome back','success');
       } catch (err) {
         API.setToken(null); state.user = null;
-        root.innerHTML = '<div class="container">' + emptyState('!', 'Login failed',
-          'The username or password was incorrect. Please try again.',
-          '<button class="btn btn-primary" id="retry-login">Try again</button>') + '</div>';
-        $('#retry-login').addEventListener('click', () => render());
-        root.focus();
+        messageDialog('Login failed', 'The username or password was incorrect. Please try again.');
       } finally {
         delete form.dataset.busy;
         if (button.isConnected) { button.disabled = false; button.textContent = 'Sign in'; }
@@ -1065,7 +1079,7 @@
 
   async function viewFollowing(root, query = {}) {
     if (!requireGate(root)) return;
-    root.innerHTML = '<div class="container"><div class="spread wrap"><div><h1 class="page-title">My contacts</h1><p class="muted">The people you want to keep close.</p></div>' +
+    root.innerHTML = '<div class="container"><div class="spread wrap"><div><h1 class="page-title">contacts</h1></div>' +
       '<div class="row wrap"><a class="btn" href="#/browse">Discover developers</a><button class="btn btn-primary" id="add-contact">' + ICON.plus + ' New contact</button></div></div>' +
       '<form class="contact-search" id="contact-search"><label class="sr-only" for="contact-filter">Search contacts</label>' +
       '<input class="input" type="search" id="contact-filter" placeholder="Search name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
@@ -1226,7 +1240,7 @@
       '<div class="profile-meta">' +
       (profile.jobTitle ? '<span class="meta-item">' + ICON.briefcase + escapeHtml(profile.jobTitle) + '</span>' : '') +
       (profile.location ? '<span class="meta-item">' + ICON.location + escapeHtml(profile.location) + '</span>' : '') +
-      (isOwner && state.user.email ? '<span class="meta-item">' + ICON.mail + escapeHtml(state.user.email) + '</span>' : '') +
+      (isOwner && state.user.email ? '<button type="button" class="meta-item contact-email" data-email="' + escapeHtml(state.user.email) + '" title="copy email">' + ICON.mail + escapeHtml(state.user.email) + '</button>' : '') +
       (gh && gh.username ? '<a class="meta-item" href="' + escapeHtml(gh.profileUrl) + '" target="_blank" rel="noopener">' + ICON.github + escapeHtml(gh.username) + '</a>' : '') +
       '</div></div>' +
       '<div class="profile-actions">' +
@@ -1238,15 +1252,9 @@
           '<button class="btn btn-primary btn-sm" id="message-btn">' + ICON.mail + ' message</button>') +
       '<a class="btn btn-sm" href="#/compare?a=' + profile.userid + '">' + ICON.compare + ' compare</a>' +
       '</div></section>' +
-      (isOwner
-        ? '<section class="section">' +
-          '<form class="search-form" id="profile-search">' +
-          '<input class="search-input" type="search" aria-label="Search developer directory" placeholder="search developers by name, @login, skill…" autocomplete="off">' +
-          '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
-          '</form>' +
-          '<div class="row wrap mt">' +
-          '<a class="btn btn-primary" href="#/contacts">' + ICON.user + ' my contacts</a>' +
-          (state.user.isAdmin ? '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' : '') +
+      (isOwner && state.user.isAdmin
+        ? '<section class="section"><div class="row wrap mt">' +
+          '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' +
           '</div></section>'
         : '') +
       (profile.bio ? '<p class="bio section">' + escapeHtml(profile.bio) + '</p>' : '') +
@@ -1261,12 +1269,15 @@
       '</div>';
 
     $('#share-btn').addEventListener('click', () => shareProfile(profile));
-    const profileSearch = $('#profile-search');
-    if (profileSearch) {
-      profileSearch.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const q = profileSearch.querySelector('input').value.trim();
-        location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
+    const profileEmail = $('.profile-meta .contact-email');
+    if (profileEmail) {
+      profileEmail.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(profileEmail.dataset.email);
+          toast('Email copied', 'success');
+        } catch (e) {
+          toast('Email: ' + profileEmail.dataset.email, 'info');
+        }
       });
     }
     const followBtn = $('#follow-btn');
@@ -2537,6 +2548,11 @@
 
   (async function init() {
     initTheme();
+    $('#nav-search').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = $('#nav-search input').value.trim();
+      location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
+    });
     await resolveSession();
     renderProfileSlot();
     await render();

@@ -104,7 +104,17 @@ svg.spark { width: 76px; height: 18px; }
 }
 .nav-link:hover, .nav-link.active { color: var(--text); background: var(--surface-2); }
 .nav-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.nav-actions .btn { height: 34px; }
 #profile-slot { display: flex; align-items: center; gap: 4px; }
+.nav-search { position: relative; }
+.nav-search .search-input { width: 220px; height: 34px; padding: 0 40px 0 12px; font-size: 13px; }
+.nav-search button {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; padding: 0; border: none; background: transparent;
+  color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.nav-search button:hover { color: var(--text); }
+.nav-search button svg { width: 15px; height: 15px; }
 
 /* ---------- Buttons ---------- */
 .btn {
@@ -551,6 +561,11 @@ svg.spark { width: 76px; height: 18px; }
 .modal-card { width: min(94vw, 440px); padding: 24px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); max-height: 90vh; overflow-y: auto; animation: pop 0.18s ease-out; }
 .modal-card h2 { margin: 0 0 4px; font-family: var(--mono); font-size: 19px; }
 .modal-card .sub { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+.modal-card.message-dialog { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 10px; min-height: 120px; }
+.modal-card.message-dialog .spread { justify-content: space-between; }
+.modal-card.message-dialog h2 { margin: 0; }
+.modal-card.message-dialog .sub { margin: 0; }
+.modal-card.message-dialog .spread [data-close] { position: absolute; top: 12px; right: 12px; }
 .tabs { display: flex; border: 1px solid var(--line-strong); border-radius: var(--radius); margin-bottom: 18px; overflow: hidden; }
 .tab { flex: 1; text-align: center; padding: 9px; font-weight: 600; font-size: 13px; font-family: var(--mono); cursor: pointer; color: var(--muted); border: none; background: var(--surface); }
 .tab + .tab { border-left: 1px solid var(--line); }
