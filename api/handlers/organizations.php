@@ -390,7 +390,7 @@ function uniqueSlug($db, $slug, $exact) {
 function organizationFail($e, $fallback) {
     $missing = $e->getCode() === '42S02' || strpos($e->getMessage(), 'Base table or view not found') !== false;
     if ($missing) {
-        respond(503, ['error' => 'Organization tables are not installed yet. Run migrate_organizations.sql on the database.']);
+        respond(503, ['error' => 'Organization tables are not installed yet. Run migrate.sql on the database.']);
     }
     error_log('Organization error: ' . $e->getMessage());
     respond(500, ['error' => $fallback]);
