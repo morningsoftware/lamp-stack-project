@@ -741,7 +741,7 @@
       '<div class="container browse">' +
       '<div class="browse-head">' +
       '<form class="search-form" id="browse-search">' +
-      '<input class="search-input" id="browse-q" type="search" aria-label="Search developer directory" placeholder="search name, @login, skill…" value="' + escapeHtml(browseState.filters.q) + '">' +
+      '<input class="search-input" id="browse-q" type="search" aria-label="Search developers and roles" placeholder="search developers or roles…" value="' + escapeHtml(browseState.filters.q) + '">' +
       '<button class="btn btn-primary" type="submit">' + ICON.search + '</button>' +
       '</form>' +
       '</div>' +
@@ -749,6 +749,7 @@
       '<aside class="filters" id="filters"></aside>' +
       '<div class="browse-main">' +
       '<section id="suggestions"></section>' +
+      '<section id="browse-roles" class="section"></section>' +
       '<div class="spread browse-toolbar">' +
       '<span class="results-count" id="browse-count"></span>' +
       '<label class="inline-field">sort <select class="select" id="sort-select">' +
@@ -1002,7 +1003,10 @@
     const count = $('#browse-count');
     const f = browseState.filters;
 
-    if (reset) grid.innerHTML = skeleton(4);
+    if (reset) {
+      grid.innerHTML = skeleton(4);
+      loadBrowseRoles();
+    }
     more.innerHTML = '';
 
     const params = {
@@ -1044,6 +1048,43 @@
       grid.innerHTML = emptyState('!', 'could not load developers', err.message);
     } finally {
       browseState.loading = false;
+    }
+  }
+
+  function roleMatchesSkills(role, skills, mode) {
+    if (!skills.length) return true;
+    const names = (role.skills || []).map((skill) => String(skill.name || '').toLowerCase());
+    const wanted = skills.map((skill) => skill.toLowerCase());
+    if (mode === 'all') return wanted.every((skill) => names.includes(skill));
+    return wanted.some((skill) => names.includes(skill));
+  }
+
+  async function loadBrowseRoles() {
+    const el = $('#browse-roles');
+    if (!el) return;
+    const f = browseState.filters;
+    try {
+      const roles = await API.roles({ status: 'open', q: f.q }) || [];
+      const matched = roles.filter((role) => roleMatchesSkills(role, f.skills, f.skillMode));
+      if (!matched.length) {
+        el.innerHTML = '';
+        el.classList.add('hidden');
+        return;
+      }
+      el.classList.remove('hidden');
+      const shown = matched.slice(0, 6);
+      const params = new URLSearchParams();
+      params.set('status', 'open');
+      if (f.q) params.set('q', f.q);
+      el.innerHTML =
+        '<div class="spread browse-toolbar"><h3 class="section-title" style="margin:0">' +
+        ICON.briefcase + ' open roles</h3>' +
+        '<a class="btn btn-sm" href="#/roles?' + params.toString() + '">all roles</a></div>' +
+        '<div class="card-grid">' + shown.map(roleCard).join('') + '</div>';
+      bindRoleActions(el);
+    } catch (e) {
+      el.innerHTML = '';
+      el.classList.add('hidden');
     }
   }
 
@@ -2622,7 +2663,10 @@
       (role.description ? '<p class="listing-desc">' + escapeHtml(role.description) + '</p>' : '') +
       (skills ? '<div class="chip-row">' + skills + '</div>' : '') +
       '<div class="row">' +
-      '<span class="faint">' + role.applicantCount + (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' +
+      (role.canManage
+        ? '<a class="btn btn-sm" href="#/roles/' + role.roleid + '">' + role.applicantCount +
+          (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</a>'
+        : '<span class="faint">' + role.applicantCount + (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>') +
       apply +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' + escapeHtml(role.name) + '">' +
       ICON.share + ' share</button></div></article>';
@@ -2646,15 +2690,76 @@
   function openEditOrganization(org) {
     formDialog('Edit organization', org.name,
       field('name', 'Name', { required: true, maxlength: 100 }, org.name) +
+      field('slug', 'Address', { required: true, maxlength: 50 }, org.slug) +
       textArea('description', 'Description', org.description) +
       field('location', 'Location', { maxlength: 100 }, org.location || '') +
       field('website', 'Website', { maxlength: 255 }, org.website || ''),
       'Save',
       async (data) => {
-        await API.updateOrganization(org.slug, data);
+        const saved = await API.updateOrganization(org.slug, data);
         toast('Organization updated', 'success');
+        if (saved.slug && saved.slug !== org.slug) {
+          location.hash = '#/orgs/' + encodeURIComponent(saved.slug);
+        } else {
+          await render();
+        }
+      });
+  }
+
+  function confirmDeleteOrganization(org) {
+    messageDialog('Delete organization', 'Delete ' + org.name + ' and every role posted under it? Applications go with the roles. Messages that shared them keep their text.',
+      '<button class="btn" type="button" data-close>Cancel</button>' +
+      '<button class="btn btn-primary" type="button" id="confirm-delete-org">Delete</button>');
+    $('#confirm-delete-org').addEventListener('click', async () => {
+      const button = $('#confirm-delete-org');
+      button.disabled = true;
+      try {
+        await API.deleteOrganization(org.slug);
+        closeModal();
+        toast('Organization deleted', 'success');
+        location.hash = '#/orgs';
+      } catch (err) {
+        toast(err.message, 'error');
+        if (button) button.disabled = false;
+      }
+    });
+  }
+
+  async function openEditRole(role) {
+    const full = Array.isArray(role.skills) ? role : await API.role(role.roleid);
+    const skillText = (full.skills || []).map((skill) => skill.name).join(', ');
+    formDialog('Edit role', full.organization ? full.organization.name : '',
+      field('name', 'Role name', { required: true, maxlength: 100 }, full.name) +
+      textArea('description', 'Description', full.description) +
+      field('skills', 'Skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }, skillText) +
+      '<div class="field"><label for="field-status">Status</label><select class="select" id="field-status" name="status">' +
+      '<option value="open"' + (full.status === 'open' ? ' selected' : '') + '>Accepting applications</option>' +
+      '<option value="closed"' + (full.status === 'closed' ? ' selected' : '') + '>Closed</option></select></div>',
+      'Save',
+      async (data) => {
+        await API.updateRole(full.roleid, data);
+        toast('Role updated', 'success');
         await render();
       });
+  }
+
+  function confirmDeleteRole(role, orgSlug) {
+    messageDialog('Delete role', 'Delete ' + (role.name || 'this role') + '? Its applications are removed. Messages that shared it keep their text.',
+      '<button class="btn" type="button" data-close>Cancel</button>' +
+      '<button class="btn btn-primary" type="button" id="confirm-delete-role">Delete</button>');
+    $('#confirm-delete-role').addEventListener('click', async () => {
+      const button = $('#confirm-delete-role');
+      button.disabled = true;
+      try {
+        await API.deleteRole(role.roleid);
+        closeModal();
+        toast('Role deleted', 'success');
+        location.hash = orgSlug ? '#/orgs/' + encodeURIComponent(orgSlug) : '#/roles';
+      } catch (err) {
+        toast(err.message, 'error');
+        if (button) button.disabled = false;
+      }
+    });
   }
 
   function openAddMember(org) {
@@ -2694,11 +2799,21 @@
     const params = {};
     if (status !== 'all') params.status = status;
     if (query.q) params.q = query.q;
-    const roles = await API.roles(params) || [];
+    const [roles, mine] = await Promise.all([
+      API.roles(params),
+      API.roles({ applied: true }),
+    ]);
+    const listings = roles || [];
+    const applications = mine || [];
 
     root.innerHTML =
       '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' Roles</h1></div>' +
       '<p class="sub">Open roles are accepting applications. Apply once, or share a listing in a message.</p>' +
+      '<section class="section"><h2 class="section-title">Your applications</h2>' +
+      (applications.length
+        ? '<div class="card-grid">' + applications.map(roleCard).join('') + '</div>'
+        : '<p class="muted">You have not applied to a role yet.</p>') +
+      '</section>' +
       '<div class="row mt">' +
       '<a class="btn btn-sm' + (status === 'open' ? ' btn-primary' : '') + '" href="#/roles?status=open">Accepting applications</a>' +
       '<a class="btn btn-sm' + (status === 'closed' ? ' btn-primary' : '') + '" href="#/roles?status=closed">Closed</a>' +
@@ -2708,7 +2823,7 @@
       '<input class="search-input" name="q" type="search" aria-label="Search roles" placeholder="search roles or organizations" value="' + escapeHtml(query.q || '') + '">' +
       '<button class="btn" type="submit">' + ICON.search + '</button></form>' +
       '<div class="card-grid section">' +
-      (roles.length ? roles.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
+      (listings.length ? listings.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
       '</div>';
 
     $('#role-search').addEventListener('submit', (e) => {
@@ -2727,21 +2842,23 @@
     const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
     let action = '';
     if (role.canManage) {
-      action = role.status === 'open'
-        ? '<button class="btn btn-sm" type="button" id="close-role">Close role</button>'
-        : '<button class="btn btn-sm" type="button" id="open-role">Reopen role</button>';
+      action = '<button class="btn btn-sm" type="button" id="edit-role">edit</button>' +
+        '<button class="btn btn-sm btn-ghost" type="button" id="delete-role">delete</button>' +
+        (role.status === 'open'
+          ? '<button class="btn btn-sm" type="button" id="close-role">Close role</button>'
+          : '<button class="btn btn-sm" type="button" id="open-role">Reopen role</button>');
     } else if (role.status === 'open') {
       action = role.applied
         ? '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>'
         : '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">apply</button>';
     }
+    const appliedNote = role.applied && !role.canManage
+      ? '<p class="muted">You applied ' + escapeHtml(timeAgo(role.appliedAt) || 'just now') + '.</p>'
+      : '';
     const applicants = role.canManage
       ? '<section class="section"><h2 class="section-title">Applicants</h2>' +
         ((role.applicants || []).length
-          ? '<div class="stack">' + role.applicants.map((person) =>
-            '<div class="panel listing-card"><a href="#/dev/' + encodeURIComponent(person.login) + '"><b>' +
-            escapeHtml(person.displayName) + '</b> <span class="faint">@' + escapeHtml(person.login) + '</span></a>' +
-            '<div class="faint">' + escapeHtml(timeAgo(person.appliedAt)) + '</div></div>').join('') + '</div>'
+          ? '<div class="stack">' + role.applicants.map(applicantLine).join('') + '</div>'
           : '<p class="muted">No applications yet.</p>') + '</section>'
       : '';
 
@@ -2752,6 +2869,7 @@
       '<p><a href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a></p>' +
       (role.description ? '<p class="listing-copy">' + escapeHtml(role.description) + '</p>' : '') +
       (skills ? '<div class="chip-row mt">' + skills + '</div>' : '') +
+      appliedNote +
       '<div class="row mt"><span class="faint">' + role.applicantCount +
       (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' + action +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' +
@@ -2759,9 +2877,21 @@
 
     const closeBtn = $('#close-role');
     const openBtn = $('#open-role');
+    const editRoleBtn = $('#edit-role');
+    const deleteRoleBtn = $('#delete-role');
     if (closeBtn) closeBtn.addEventListener('click', () => setRoleStatus(role, 'closed'));
     if (openBtn) openBtn.addEventListener('click', () => setRoleStatus(role, 'open'));
+    if (editRoleBtn) editRoleBtn.addEventListener('click', () => openEditRole(role));
+    if (deleteRoleBtn) deleteRoleBtn.addEventListener('click', () => confirmDeleteRole(role, role.organization && role.organization.slug));
     bindRoleActions(root);
+    wireDevActions(root);
+  }
+
+  function applicantLine(person) {
+    return '<div class="panel listing-card spread"><div><a href="#/dev/' + encodeURIComponent(person.login) + '"><b>' +
+      escapeHtml(person.displayName) + '</b> <span class="faint">@' + escapeHtml(person.login) + '</span></a>' +
+      '<div class="faint">applied ' + escapeHtml(timeAgo(person.appliedAt) || 'just now') + '</div></div>' +
+      '<button class="btn btn-sm" type="button" data-message="' + person.userid + '">' + ICON.mail + ' message</button></div>';
   }
 
   async function setRoleStatus(role, status) {
@@ -2821,16 +2951,28 @@
           escapeHtml(person.displayName) + '">remove</button>'
         : '') +
       '</div></div>').join('');
-    const roles = (org.roles || []).map((role) =>
-      '<div class="spread panel listing-card"><div><a href="#/roles/' + role.roleid + '"><b>' + escapeHtml(role.name) +
-      '</b></a><div class="faint">' + escapeHtml(role.statusLabel) + ' · ' + role.applicantCount + ' applicants</div></div>' +
-      '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.status) + '</span></div>').join('');
+    const roles = (org.roles || []).map((role) => {
+      const people = (role.applicants || []).map(applicantLine).join('');
+      return '<div class="panel listing-card"><div class="spread"><div><a href="#/roles/' + role.roleid + '"><b>' +
+        escapeHtml(role.name) + '</b></a><div class="faint">' + escapeHtml(role.statusLabel) + ' · ' +
+        '<a href="#/roles/' + role.roleid + '">' + role.applicantCount +
+        (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</a></div></div>' +
+        '<div class="row"><span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.status) + '</span>' +
+        (isMember
+          ? '<button class="btn btn-sm" type="button" data-edit-role="' + role.roleid + '">edit</button>' +
+            '<button class="btn btn-sm btn-ghost" type="button" data-delete-role="' + role.roleid + '" data-role-name="' +
+            escapeHtml(role.name) + '">delete</button>'
+          : '') +
+        '</div></div>' +
+        (people ? '<div class="stack">' + people + '</div>' : '') + '</div>';
+    }).join('');
 
     root.innerHTML =
       '<a class="btn btn-sm btn-ghost" href="#/orgs">' + ICON.back + ' organizations</a>' +
       '<div class="spread mt"><h1 class="page-title">' + escapeHtml(org.name) + '</h1>' +
       '<div class="row">' +
-      (isOwner ? '<button class="btn btn-sm" type="button" id="edit-org">edit</button>' : '') +
+      (isOwner ? '<button class="btn btn-sm" type="button" id="edit-org">edit</button>' +
+        '<button class="btn btn-sm btn-ghost" type="button" id="delete-org">delete</button>' : '') +
       (isMember ? '<button class="btn btn-sm btn-primary" type="button" id="post-role">' + ICON.plus + ' Post role</button>' : '') +
       '<button class="btn btn-sm" type="button" data-share-org="' + org.organizationid + '" data-share-label="' +
       escapeHtml(org.name) + '">' + ICON.share + ' share</button></div></div>' +
@@ -2846,6 +2988,7 @@
 
     if (isOwner) {
       $('#edit-org').addEventListener('click', () => openEditOrganization(org));
+      $('#delete-org').addEventListener('click', () => confirmDeleteOrganization(org));
       $('#add-member').addEventListener('click', () => openAddMember(org));
       $$('[data-remove-member]', root).forEach((btn) => btn.addEventListener('click', () => {
         messageDialog('Remove member', 'Remove ' + btn.dataset.memberName + ' from ' + org.name + '?',
@@ -2865,7 +3008,12 @@
     }
     const post = $('#post-role');
     if (post) post.addEventListener('click', () => openCreateRole(org));
+    $$('[data-edit-role]', root).forEach((btn) => btn.addEventListener('click', () => openEditRole({ roleid: btn.dataset.editRole })));
+    $$('[data-delete-role]', root).forEach((btn) => btn.addEventListener('click', () => {
+      confirmDeleteRole({ roleid: btn.dataset.deleteRole, name: btn.dataset.roleName }, org.slug);
+    }));
     bindRoleActions(root);
+    wireDevActions(root);
   }
 
   /* ---------------- Theme ---------------- */

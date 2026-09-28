@@ -239,6 +239,9 @@
     updateOrganization(key, fields) {
       return this.data('PUT', '/organizations/' + encodeURIComponent(key), fields);
     },
+    deleteOrganization(key) {
+      return this.data('DELETE', '/organizations/' + encodeURIComponent(key));
+    },
     addOrganizationMember(key, login) {
       return this.data('POST', '/organizations/' + encodeURIComponent(key) + '/members', { login });
     },
@@ -256,6 +259,9 @@
     },
     updateRole(roleid, fields) {
       return this.data('PUT', '/roles/' + roleid, fields);
+    },
+    deleteRole(roleid) {
+      return this.data('DELETE', '/roles/' + roleid);
     },
     applyToRole(roleid) {
       return this.data('POST', '/roles/' + roleid + '/apply');
