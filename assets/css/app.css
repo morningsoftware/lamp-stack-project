@@ -472,7 +472,7 @@ svg.spark { width: 76px; height: 18px; }
 .empty-inline { color: var(--faint); font-size: 13px; }
 
 /* ---------- Messages ---------- */
-.messages { display: grid; grid-template-columns: 300px 1fr; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; min-height: 60vh; background: var(--surface); }
+.messages { display: grid; grid-template-columns: 300px 1fr; gap: 0; margin-top: 24px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; min-height: 60vh; background: var(--surface); }
 .convo-list { border-right: 1px solid var(--line); overflow-y: auto; max-height: 74vh; }
 .convo-item { display: flex; gap: 12px; align-items: center; padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--line); transition: background 0.12s; }
 .convo-item:hover { background: var(--surface-2); }
@@ -483,6 +483,7 @@ svg.spark { width: 76px; height: 18px; }
 .convo-side { display: grid; gap: 6px; justify-items: end; }
 .unread { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 2px; display: grid; place-items: center; font-size: 11px; font-weight: 700; font-family: var(--mono); background: var(--accent); color: var(--accent-text); }
 .thread { display: grid; grid-template-rows: auto 1fr auto; min-height: 60vh; }
+.thread > .empty { grid-row: 1 / -1; align-self: center; justify-self: center; }
 .thread-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
 .thread-id { min-width: 0; }
 .thread-actions { margin-left: auto; display: flex; gap: 8px; }

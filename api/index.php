@@ -7,6 +7,15 @@ require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/config/helpers.php';
 setCORSHeaders();
 
+// Serve a 503 while MAINTENANCE_MODE is enabled in the environment.
+if (isMaintenanceMode()) {
+    header('Retry-After: 3600');
+    respond(503, [
+        'error'       => 'The site is temporarily down for maintenance. Please try again shortly.',
+        'maintenance' => true,
+    ]);
+}
+
 $segments = pathSegments();
 $resource = $segments[0] ?? '';
 

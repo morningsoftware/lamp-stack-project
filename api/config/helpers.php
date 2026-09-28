@@ -79,6 +79,18 @@ function setCORSHeaders() {
 }
 
 /**
+ * Returns whether the site is in maintenance mode.
+ *
+ * Enabled via the MAINTENANCE_MODE environment variable (.env).
+ *
+ * @return bool
+ */
+function isMaintenanceMode() {
+    $value = strtolower(trim((string) (getenv('MAINTENANCE_MODE') ?: '')));
+    return in_array($value, ['1', 'true', 'yes', 'on'], true);
+}
+
+/**
  * Sends a JSON response with the specified HTTP status code and terminates execution.
  *
  * @param int $statusCode HTTP status code (e.g. 200, 201, 400, 404, 405, 500)
