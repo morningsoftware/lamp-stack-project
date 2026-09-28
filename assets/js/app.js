@@ -2620,7 +2620,7 @@
       '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.statusLabel) + '</span></div>' +
       '<a class="muted" href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a>' +
       (role.description ? '<p class="listing-desc">' + escapeHtml(role.description) + '</p>' : '') +
-      (skills ? '<div class="chip-row">' + skills + '</div>' : '') +
+      (skills ? '<div class="chips">' + skills + '</div>' : '') +
       '<div class="row">' +
       '<span class="faint">' + role.applicantCount + (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' +
       apply +
@@ -2751,7 +2751,7 @@
       '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.statusLabel) + '</span></div>' +
       '<p><a href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a></p>' +
       (role.description ? '<p class="listing-copy">' + escapeHtml(role.description) + '</p>' : '') +
-      (skills ? '<div class="chip-row mt">' + skills + '</div>' : '') +
+      (skills ? '<div class="chips mt">' + skills + '</div>' : '') +
       '<div class="row mt"><span class="faint">' + role.applicantCount +
       (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' + action +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' +
