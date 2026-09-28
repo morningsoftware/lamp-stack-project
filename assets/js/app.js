@@ -117,6 +117,8 @@
   const state = { user: null, profiles: [], convos: [], facets: null, maintenance: false };
   let profileMenuBound = false;
   const isLoggedIn = () => !!state.user;
+  let messagesPollTimer = null;
+  let lastThreadMessageId = 0;
 
   /* ---------------- Avatars ---------------- */
 
@@ -609,6 +611,7 @@
 
   async function render() {
     if (state.maintenance) { renderMaintenance(); return; }
+    stopMessagesPolling();
     const { parts, query } = parseHash();
     const root = $('#app');
     const resource = parts[0] || 'home';
@@ -1816,6 +1819,35 @@
     });
   }
 
+  function stopMessagesPolling() {
+    if (messagesPollTimer) {
+      clearInterval(messagesPollTimer);
+      messagesPollTimer = null;
+    }
+  }
+
+  function startMessagesPolling(conversationid) {
+    stopMessagesPolling();
+    messagesPollTimer = setInterval(() => pollMessages(conversationid), 3000);
+  }
+
+  async function pollMessages(conversationid) {
+    try {
+      const convos = await API.conversations();
+      if (convos) {
+        state.convos = convos;
+        drawConvoList();
+      }
+      if (!conversationid) return;
+      if (String(parseHash().parts[1]) !== String(conversationid)) return;
+
+      const messages = await API.messages(conversationid) || [];
+      const latest = messages.length ? Number(messages[messages.length - 1].messageid) : 0;
+      if (latest === lastThreadMessageId) return;
+      await drawThread(conversationid, true);
+    } catch (e) { /* best-effort polling */ }
+  }
+
   async function viewMessages(root, conversationid) {
     if (!requireGate(root)) return;
 
@@ -1834,9 +1866,11 @@
 
     if (conversationid) {
       await drawThread(Number(conversationid));
+      startMessagesPolling(Number(conversationid));
     } else {
       $('.thread').innerHTML = emptyState(ICON.mail, 'messages',
         'select a conversation or start a new one.');
+      startMessagesPolling(null);
     }
   }
 
@@ -1868,7 +1902,7 @@
     await drawThread(conversationid);
   }
 
-  async function drawThread(conversationid) {
+  async function drawThread(conversationid, quiet = false) {
     const thread = $('.thread');
     if (!thread) return;
 
@@ -1885,6 +1919,7 @@
     const participantIds = others.map((p) => p.userid);
 
     const messages = await API.messages(conversationid) || [];
+    if (messages.length) lastThreadMessageId = Number(messages[messages.length - 1].messageid);
     await API.markRead(conversationid).catch(() => {});
     const idx = state.convos.indexOf(convo);
     if (idx >= 0) state.convos[idx].unreadCount = 0;
@@ -1902,6 +1937,10 @@
     const subtitle = isGroup
       ? (others.length + 1) + ' people'
       : (others[0] ? '@' + escapeHtml(others[0].loginuid || '') : '');
+
+    const prevInput = $('#composer-input');
+    const draft = prevInput ? prevInput.value : '';
+    const hadFocus = prevInput ? (document.activeElement === prevInput) : false;
 
     thread.innerHTML =
       '<div class="thread-head">' + avatarHtml(av, 'sm') +
@@ -1940,7 +1979,8 @@
     }
 
     const input = $('#composer-input');
-    input.focus();
+    if (draft) input.value = draft;
+    if (!quiet || hadFocus) input.focus();
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
