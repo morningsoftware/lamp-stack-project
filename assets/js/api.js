@@ -171,6 +171,12 @@
     syncGithub(options = {}) {
       return this.data('POST', '/github/sync', options);
     },
+    disconnectGithub() {
+      return this.data('POST', '/oauth/github/disconnect');
+    },
+    connectGithub() {
+      return this.data('POST', '/oauth/github/connect');
+    },
 
     /* contacts */
     contacts(params = {}) {

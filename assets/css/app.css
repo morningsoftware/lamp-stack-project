@@ -192,6 +192,8 @@ svg.spark { width: 76px; height: 18px; }
 .login-panel .sub { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
 .login-panel .btn-primary { width: 100%; padding-block: 11px; }
 .login-panel .auth-switch { text-align: center; margin: 18px 0 0; }
+.oauth-divider { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; margin: 14px 0; }
+.oauth-divider::before, .oauth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 @media (max-width: 720px) {
   .login-layout { grid-template-columns: 1fr; gap: 28px; }
 }

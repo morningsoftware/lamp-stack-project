@@ -526,9 +526,7 @@
     const registering = mode === 'register';
     const fields = field('login', registering ? 'username' : 'username or email', {required:true, maxlength:registering ? 50 : 255, minlength:registering ? 3 : 1, autocomplete:'username'}) +
       (registering ? field('email','email',{type:'email',required:true,maxlength:255,autocomplete:'email'}) +
-        '<div class="form-columns">' + field('firstName','first name',{maxlength:50,autocomplete:'given-name'}) + field('lastName','last name',{maxlength:50,autocomplete:'family-name'}) + '</div>' +
-        field('githubUsername','GitHub username',{required:true,maxlength:39,'aria-describedby':'github-help'}) +
-        '<p class="form-hint" id="github-help">Use a GitHub account you own that is not already linked to another account.</p>' + passwordFields() :
+        '<div class="form-columns">' + field('firstName','first name',{maxlength:50,autocomplete:'given-name'}) + field('lastName','last name',{maxlength:50,autocomplete:'family-name'}) + '</div>' + passwordFields() :
         field('password','password',{type:'password',required:true,autocomplete:'current-password'}));
     formDialog(registering ? 'create account' : 'sign in', registering ? 'Keep your contacts together and connect with your team.' : 'Welcome back. Sign in to manage your contacts.', fields,
       registering ? 'create account' : 'sign in', async data => {
@@ -549,9 +547,13 @@
         renderProfileSlot();
         await render();
         toast(registering ? 'Account created. You are signed in.' : 'welcome back','success');
-      }, '<p class="auth-switch">' + (registering ? 'Already have an account?' : 'New here?') +
-      ' <button class="text-button" type="button" id="auth-switch">' + (registering ? 'sign in' : 'create account') + '</button></p>');
+      }, '<div class="oauth-divider"><span>or</span></div>' +
+      '<button class="btn btn-ghost" type="button" id="github-login-btn" style="width:100%">' + ICON.github + ' continue with GitHub</button>' +
+      '<p class="auth-switch">' + (registering ? 'Already have an account?' : 'New here?') +
+      ' <button class="text-button" type="button" id="auth-switch">' + (registering ? 'sign in' : 'create account') + '</button></p>', false);
     $('#auth-switch').addEventListener('click', () => openAuthModal(registering ? 'login' : 'register'));
+    const ghBtn = $('#github-login-btn');
+    if (ghBtn) ghBtn.addEventListener('click', () => { location.href = API.base + '/oauth/github'; });
   }
 
   function messageDialog(title, text, actions) {
@@ -620,6 +622,7 @@
 
     try {
       if (resource === 'home') return await viewHome(root, query);
+      if (resource === 'oauth') return handleOauthCallback(root, query);
       if (resource === 'dev') return await viewProfile(root, parts[1]);
       if (resource === 'u') return await resolveByLogin(root, parts[1]);
       if (resource === 'browse') return await viewBrowse(root, query);
@@ -646,6 +649,28 @@
       '</div></div>';
   }
 
+  function handleOauthCallback(root, query) {
+    if (query.error) {
+      root.innerHTML = emptyState('!', 'sign-in failed', query.error);
+      return;
+    }
+    const token = query.token;
+    if (!token) {
+      root.innerHTML = emptyState('!', 'sign-in failed', 'Could not complete GitHub sign-in.');
+      return;
+    }
+    API.setToken(token);
+    API.session().then((user) => {
+      state.user = user;
+      renderProfileSlot();
+      location.hash = '#/';
+    }).catch(() => {
+      API.setToken(null);
+      state.user = null;
+      root.innerHTML = emptyState('!', 'sign-in failed', 'Could not complete GitHub sign-in.');
+    });
+  }
+
   /* ---------------- Landing ---------------- */
 
   async function viewHome(root, query) {
@@ -666,10 +691,13 @@
       field('login','username or email',{required:true,autocomplete:'username'}) +
       field('password','password',{type:'password',required:true,autocomplete:'current-password'}) +
       '<button class="btn btn-primary" type="submit">sign in</button></form>' +
+      '<div class="oauth-divider"><span>or</span></div>' +
+      '<button class="btn btn-ghost" type="button" id="hero-github-btn" style="width:100%">' + ICON.github + ' continue with GitHub</button>' +
       '<p class="auth-switch">Need an account? <button class="text-button" type="button" id="hero-reg-btn">register</button></p>' +
       '</section></div></div>';
 
     $('#hero-reg-btn').addEventListener('click', () => openAuthModal('register'));
+    $('#hero-github-btn').addEventListener('click', () => { location.href = API.base + '/oauth/github'; });
     const form = $('#landing-login-form');
     form.addEventListener('submit', async e => {
       e.preventDefault();
@@ -1283,7 +1311,7 @@
           sharedLangs.map((l) => '<span class="chip static">' + escapeHtml(l) + '</span>').join('') +
           '</div></section>' : '') +
       '<section class="section"><h3 class="section-title">skills</h3><div class="chips">' + skillChips(profile.skills) + '</div></section>' +
-      '<section class="section" id="github-section"></section>' +
+      (gh ? '<section class="section" id="github-section"></section>' : '') +
       '</div>';
 
     $('#share-btn').addEventListener('click', () => shareProfile(profile));
@@ -1939,6 +1967,10 @@
   async function viewSettings(root, query) {
     if (!requireGate(root)) return;
     const tab = query.tab || 'profile';
+    if (query.oauth_error) {
+      toast(query.oauth_error, 'error');
+      history.replaceState(null, '', '#/settings?tab=' + tab);
+    }
     const userid = state.user.userid;
 
     root.innerHTML =
@@ -2173,34 +2205,61 @@
     let gh = null;
     try { gh = await API.github(userid); } catch (e) { gh = null; }
 
+    if (!gh) {
+      panel.innerHTML =
+        '<div class="panel" style="padding:20px;display:grid;gap:14px">' +
+        '<div><div class="section-title">github</div>' +
+        '<p class="muted">Connect your GitHub account to verify ownership and show your repositories, commits, and activity on your profile.</p>' +
+        '<div class="row mt"><button class="btn btn-primary" id="gh-connect">' + ICON.github + ' connect GitHub</button></div>' +
+        '</div></div>';
+      $('#gh-connect').addEventListener('click', async () => {
+        try {
+          const res = await API.connectGithub();
+          location.href = res.url;
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+      return;
+    }
+
     panel.innerHTML =
       '<div class="panel" style="padding:20px;display:grid;gap:14px">' +
       '<div><div class="section-title">linked account</div>' +
       '<div class="row">' +
-      '<input class="input flex1" id="gh-username" placeholder="GitHub username" value="' + escapeHtml(gh ? gh.username : '') + '">' +
+      '<span class="mono">@' + escapeHtml(gh.username) + '</span>' +
       '<button class="btn btn-primary" id="gh-sync">' + ICON.refresh + ' refresh now</button>' +
+      '<button class="btn btn-ghost" id="gh-disconnect">disconnect</button>' +
       '</div>' +
-      '<p class="home-hint">' + (gh && gh.lastSynced ? 'last synced ' + escapeHtml(timeAgo(gh.lastSynced)) : 'never synced') + '</p>' +
+      '<p class="home-hint">' + (gh.lastSynced ? 'last synced ' + escapeHtml(timeAgo(gh.lastSynced)) : 'never synced') + '</p>' +
       '</div>' +
-      (gh ? '<div class="stat-grid">' +
+      '<div class="stat-grid">' +
         statCell('followers', fmtNum(gh.followers)) +
         statCell('repositories', fmtNum(gh.publicRepos)) +
         statCell('public gists', fmtNum(gh.publicGists)) +
         statCell('repos cached', fmtNum((gh.repositories || []).length)) +
-        '</div>' : '') +
+      '</div>' +
       '</div>';
 
     $('#gh-sync').addEventListener('click', async () => {
-      const username = $('#gh-username').value.trim();
       const btn = $('#gh-sync');
       btn.disabled = true;
       try {
-        await API.syncGithub(username ? { username } : {});
+        await API.syncGithub({});
         toast('GitHub refreshed', 'success');
         viewSettings($('#app'), { tab: 'github' });
       } catch (err) {
         toast(err.message, 'error');
         btn.disabled = false;
+      }
+    });
+    $('#gh-disconnect').addEventListener('click', async () => {
+      try {
+        await API.disconnectGithub();
+        toast('GitHub account disconnected', 'success');
+        viewSettings($('#app'), { tab: 'github' });
+      } catch (err) {
+        toast(err.message, 'error');
       }
     });
   }
