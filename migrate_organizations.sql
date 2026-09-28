@@ -67,13 +67,40 @@ CREATE TABLE IF NOT EXISTS applications (
   applicationid INT AUTO_INCREMENT PRIMARY KEY,
   roleid        INT NOT NULL,
   userid        INT NOT NULL,
+  decision      VARCHAR(20) NOT NULL DEFAULT 'pending',
+  decided_at    TIMESTAMP NULL DEFAULT NULL,
+  decided_by    INT DEFAULT NULL,
   created_at    TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_applications_role_user (roleid, userid),
   KEY idx_applications_userid (userid),
+  KEY idx_applications_decision (decision),
   CONSTRAINT fk_applications_role FOREIGN KEY (roleid)
     REFERENCES roles (roleid) ON DELETE CASCADE,
   CONSTRAINT fk_applications_user FOREIGN KEY (userid)
-    REFERENCES users (userid) ON DELETE CASCADE
+    REFERENCES users (userid) ON DELETE CASCADE,
+  CONSTRAINT fk_applications_decided_by FOREIGN KEY (decided_by)
+    REFERENCES users (userid) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS organization_invitations (
+  invitationid   INT AUTO_INCREMENT PRIMARY KEY,
+  organizationid INT NOT NULL,
+  userid         INT NOT NULL,
+  roleid         INT DEFAULT NULL,
+  invited_by     INT DEFAULT NULL,
+  status         VARCHAR(20) NOT NULL DEFAULT 'pending',
+  created_at     TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  responded_at   TIMESTAMP NULL DEFAULT NULL,
+  UNIQUE KEY uq_invitation_org_user (organizationid, userid),
+  KEY idx_invitations_userid_status (userid, status),
+  CONSTRAINT fk_invitations_org FOREIGN KEY (organizationid)
+    REFERENCES organizations (organizationid) ON DELETE CASCADE,
+  CONSTRAINT fk_invitations_user FOREIGN KEY (userid)
+    REFERENCES users (userid) ON DELETE CASCADE,
+  CONSTRAINT fk_invitations_role FOREIGN KEY (roleid)
+    REFERENCES roles (roleid) ON DELETE SET NULL,
+  CONSTRAINT fk_invitations_invited_by FOREIGN KEY (invited_by)
+    REFERENCES users (userid) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 ALTER TABLE messages

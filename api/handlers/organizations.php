@@ -24,6 +24,23 @@ if ($key === null) {
     respond(405, ['error' => 'Method not allowed']);
 }
 
+if ($key === 'invitations') {
+    if ($sub === null) {
+        requireMethod('GET');
+        listMyInvitations($db, $userid);
+    }
+    $invitationId = requireId($sub, 'invitation id');
+    if ($subId === 'accept') {
+        requireMethod('POST');
+        acceptInvitation($db, $invitationId, $userid);
+    }
+    if ($subId === 'decline') {
+        requireMethod('POST');
+        declineInvitation($db, $invitationId, $userid);
+    }
+    respond(404, ['error' => 'Not found']);
+}
+
 $org = findOrganization($db, $key);
 
 if ($sub === null) {
@@ -319,6 +336,7 @@ function organizationMembers($db, $organizationid) {
 }
 
 function organizationRoles($db, $organizationid, $userid) {
+    try {
     $stmt = $db->prepare(
         'SELECT r.roleid, r.name, r.description, r.status, r.created_at, r.closed_at,
                 (SELECT COUNT(*) FROM applications a WHERE a.roleid = r.roleid) AS applicant_count
@@ -335,8 +353,9 @@ function organizationRoles($db, $organizationid, $userid) {
             $ids[] = (int) $row['roleid'];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $decision = decisionReady($db) ? 'a.decision' : '\'pending\' AS decision';
         $apps = $db->prepare(
-            "SELECT a.roleid, u.userid, u.loginuid, u.displayname, u.firstname, u.lastname, a.created_at
+            "SELECT a.roleid, {$decision}, u.userid, u.loginuid, u.displayname, u.firstname, u.lastname, a.created_at
              FROM applications a
              JOIN users u ON u.userid = a.userid
              WHERE a.roleid IN ({$placeholders})
@@ -346,11 +365,16 @@ function organizationRoles($db, $organizationid, $userid) {
         foreach ($apps->fetchAll() as $person) {
             $people[(int) $person['roleid']][] = [
                 'userid'      => (int) $person['userid'],
+                'roleid'      => (int) $person['roleid'],
                 'login'       => $person['loginuid'],
                 'displayName' => $person['displayname'] ?: trim($person['firstname'] . ' ' . $person['lastname']),
+                'decision'    => $person['decision'] ?: 'pending',
                 'appliedAt'   => $person['created_at'],
             ];
         }
+    }
+    } catch (PDOException $e) {
+        organizationFail($e, 'Could not load roles');
     }
     $roles = [];
     foreach ($rows as $row) {
@@ -439,8 +463,122 @@ function uniqueSlug($db, $slug, $exact) {
     respond(409, ['error' => 'Could not choose a unique address for this organization']);
 }
 
+function listMyInvitations($db, $userid) {
+    try {
+        $stmt = $db->prepare(
+            'SELECT i.invitationid, i.status, i.created_at, i.roleid,
+                    o.organizationid, o.name AS org_name, o.slug,
+                    r.name AS role_name
+             FROM organization_invitations i
+             JOIN organizations o ON o.organizationid = i.organizationid
+             LEFT JOIN roles r ON r.roleid = i.roleid
+             WHERE i.userid = :userid AND i.status = \'pending\'
+             ORDER BY i.created_at DESC'
+        );
+        $stmt->execute([':userid' => $userid]);
+        $rows = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        organizationFail($e, 'Could not load invitations');
+    }
+
+    $invites = [];
+    foreach ($rows as $row) {
+        $invites[] = [
+            'invitationid' => (int) $row['invitationid'],
+            'status'       => $row['status'],
+            'createdAt'    => $row['created_at'],
+            'organization' => [
+                'organizationid' => (int) $row['organizationid'],
+                'name'           => $row['org_name'],
+                'slug'           => $row['slug'],
+            ],
+            'role'         => $row['roleid'] ? [
+                'roleid' => (int) $row['roleid'],
+                'name'   => $row['role_name'],
+            ] : null,
+        ];
+    }
+    respond(200, ['data' => $invites]);
+}
+
+function acceptInvitation($db, $invitationId, $userid) {
+    $invite = fetchInvitation($db, $invitationId, $userid);
+    try {
+        $db->beginTransaction();
+        $member = $db->prepare(
+            'INSERT IGNORE INTO organization_members (organizationid, userid, membership)
+             VALUES (:org, :userid, \'member\')'
+        );
+        $member->execute([
+            ':org'    => (int) $invite['organizationid'],
+            ':userid' => $userid,
+        ]);
+        $update = $db->prepare(
+            'UPDATE organization_invitations
+             SET status = \'accepted\', responded_at = NOW()
+             WHERE invitationid = :id AND userid = :userid AND status = \'pending\''
+        );
+        $update->execute([':id' => $invitationId, ':userid' => $userid]);
+        $db->commit();
+    } catch (PDOException $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        organizationFail($e, 'Could not join organization');
+    }
+    respond(200, ['data' => ['invitationid' => $invitationId, 'status' => 'accepted']]);
+}
+
+function declineInvitation($db, $invitationId, $userid) {
+    fetchInvitation($db, $invitationId, $userid);
+    try {
+        $update = $db->prepare(
+            'UPDATE organization_invitations
+             SET status = \'declined\', responded_at = NOW()
+             WHERE invitationid = :id AND userid = :userid AND status = \'pending\''
+        );
+        $update->execute([':id' => $invitationId, ':userid' => $userid]);
+    } catch (PDOException $e) {
+        organizationFail($e, 'Could not decline invitation');
+    }
+    if ($update->rowCount() === 0) {
+        respond(400, ['error' => 'This invitation is no longer open']);
+    }
+    respond(200, ['data' => ['invitationid' => $invitationId, 'status' => 'declined']]);
+}
+
+function fetchInvitation($db, $invitationId, $userid) {
+    try {
+        $stmt = $db->prepare(
+            'SELECT invitationid, organizationid, userid, status
+             FROM organization_invitations WHERE invitationid = :id LIMIT 1'
+        );
+        $stmt->execute([':id' => $invitationId]);
+        $invite = $stmt->fetch();
+    } catch (PDOException $e) {
+        organizationFail($e, 'Could not load invitation');
+    }
+    if (!$invite) {
+        respond(404, ['error' => 'Invitation not found']);
+    }
+    if ((int) $invite['userid'] !== $userid) {
+        respond(403, ['error' => 'This invitation is not yours']);
+    }
+    if ($invite['status'] !== 'pending') {
+        respond(400, ['error' => 'This invitation is no longer open']);
+    }
+    return $invite;
+}
+
 function organizationFail($e, $fallback) {
-    $missing = $e->getCode() === '42S02' || strpos($e->getMessage(), 'Base table or view not found') !== false;
+    $detail = $e->getMessage();
+    $missing = $e->getCode() === '42S02' || strpos($detail, 'Base table or view not found') !== false;
+    $needsDecision = strpos($detail, 'organization_invitations') !== false
+        || strpos($detail, 'decision') !== false
+        || strpos($detail, 'decided_by') !== false;
+    if ($needsDecision) {
+        respond(503, ['error' => 'Application decisions are not installed yet. Run migrate_applications.sql on the database.']);
+    }
     if ($missing) {
         respond(503, ['error' => 'Organization tables are not installed yet. Run migrate_organizations.sql on the database.']);
     }

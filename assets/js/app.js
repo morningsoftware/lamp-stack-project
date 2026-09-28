@@ -1055,10 +1055,13 @@
     const f = browseState.filters;
     try {
       const roles = await API.roles({ status: 'open', q: f.q }) || [];
-      const matched = roles.filter((role) => roleMatchesSkills(role, f.skills, f.skillMode));
+      const list = Array.isArray(roles) ? roles : [];
+      const matched = list.filter((role) => roleMatchesSkills(role, f.skills, f.skillMode));
       if (!matched.length) {
-        el.innerHTML = '';
-        el.classList.add('hidden');
+        el.classList.toggle('hidden', !list.length);
+        el.innerHTML = list.length
+          ? '<p class="muted">No open roles match these filters.</p>'
+          : '';
         return;
       }
       el.classList.remove('hidden');
@@ -1073,8 +1076,8 @@
         '<div class="card-grid">' + shown.map(roleCard).join('') + '</div>';
       bindRoleActions(el);
     } catch (e) {
-      el.innerHTML = '';
-      el.classList.add('hidden');
+      el.classList.remove('hidden');
+      el.innerHTML = '<p class="muted">' + escapeHtml(e.message || 'Open roles could not be loaded.') + '</p>';
     }
   }
 
@@ -2644,12 +2647,14 @@
   function roleCard(role) {
     const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
     let apply = '';
-    if (role.status === 'open' && !role.canManage) {
-      apply = role.applied
-        ? '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>'
-        : '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">apply</button>';
-    } else if (role.applied) {
-      apply = '<span class="badge">applied</span>';
+    const decision = role.decision || (role.applied ? 'pending' : '');
+    if (!role.canManage && role.status === 'open' && (!role.applied || decision === 'rejected')) {
+      apply = '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">' +
+        (decision === 'rejected' ? 'apply again' : 'apply') + '</button>';
+    } else if (!role.canManage && role.applied && decision === 'pending') {
+      apply = '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>';
+    } else if (role.applied && decision) {
+      apply = '<span class="badge' + (decision === 'accepted' ? ' accent' : '') + '">' + escapeHtml(decision) + '</span>';
     }
     return '<article class="panel listing-card">' +
       '<div class="spread"><h3><a href="#/roles/' + role.roleid + '">' + escapeHtml(role.name) + '</a></h3>' +
@@ -2721,17 +2726,28 @@
   }
 
   async function openEditRole(role) {
-    const full = Array.isArray(role.skills) ? role : await API.role(role.roleid);
+    let full = role;
+    let skillsKnown = Array.isArray(role.skills);
+    if (!skillsKnown) {
+      try {
+        full = await API.role(role.roleid);
+        skillsKnown = true;
+      } catch (err) {
+        if (!role || !role.name) throw err;
+        full = role;
+      }
+    }
     const skillText = (full.skills || []).map((skill) => skill.name).join(', ');
     formDialog('Edit role', full.organization ? full.organization.name : '',
       field('name', 'Role name', { required: true, maxlength: 100 }, full.name) +
       textArea('description', 'Description', full.description) +
-      field('skills', 'Skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }, skillText) +
+      (skillsKnown ? field('skills', 'Skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }, skillText) : '') +
       '<div class="field"><label for="field-status">Status</label><select class="select" id="field-status" name="status">' +
       '<option value="open"' + (full.status === 'open' ? ' selected' : '') + '>Accepting applications</option>' +
       '<option value="closed"' + (full.status === 'closed' ? ' selected' : '') + '>Closed</option></select></div>',
       'Save',
       async (data) => {
+        if (!skillsKnown) delete data.skills;
         await API.updateRole(full.roleid, data);
         toast('Role updated', 'success');
         await render();
@@ -2835,6 +2851,7 @@
   async function viewRole(root, roleid) {
     const role = await API.role(roleid);
     const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
+    const decision = role.decision || (role.applied ? 'pending' : '');
     let action = '';
     if (role.canManage) {
       action = '<button class="btn btn-sm" type="button" id="edit-role">edit</button>' +
@@ -2842,14 +2859,30 @@
         (role.status === 'open'
           ? '<button class="btn btn-sm" type="button" id="close-role">Close role</button>'
           : '<button class="btn btn-sm" type="button" id="open-role">Reopen role</button>');
-    } else if (role.status === 'open') {
-      action = role.applied
-        ? '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>'
-        : '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">apply</button>';
+    } else if (role.status === 'open' && (!role.applied || decision === 'rejected')) {
+      action = '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">' +
+        (decision === 'rejected' ? 'apply again' : 'apply') + '</button>';
+    } else if (role.applied && decision === 'pending') {
+      action = '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>';
     }
-    const appliedNote = role.applied && !role.canManage
-      ? '<p class="muted">You applied ' + escapeHtml(timeAgo(role.appliedAt) || 'just now') + '.</p>'
-      : '';
+    let appliedNote = '';
+    if (role.applied && !role.canManage) {
+      const invite = role.invitation;
+      if (decision === 'accepted' && invite && invite.status === 'pending') {
+        appliedNote = '<p class="muted">You were accepted. Join ' + escapeHtml(role.organization.name) + ' or decline the invitation.</p>' +
+          '<div class="row">' +
+          '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">Join organization</button>' +
+          '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">Decline</button></div>';
+      } else if (decision === 'accepted' && invite && invite.status === 'declined') {
+        appliedNote = '<p class="muted">You were accepted and declined the invitation to join.</p>';
+      } else if (decision === 'accepted') {
+        appliedNote = '<p class="muted">You were accepted.</p>';
+      } else if (decision === 'rejected') {
+        appliedNote = '<p class="muted">Your application was not accepted.</p>';
+      } else {
+        appliedNote = '<p class="muted">You applied ' + escapeHtml(timeAgo(role.appliedAt) || 'just now') + '. The organization has not decided yet.</p>';
+      }
+    }
     const applicants = role.canManage
       ? '<section class="section"><h2 class="section-title">Applicants</h2>' +
         ((role.applicants || []).length
@@ -2876,17 +2909,95 @@
     const deleteRoleBtn = $('#delete-role');
     if (closeBtn) closeBtn.addEventListener('click', () => setRoleStatus(role, 'closed'));
     if (openBtn) openBtn.addEventListener('click', () => setRoleStatus(role, 'open'));
-    if (editRoleBtn) editRoleBtn.addEventListener('click', () => openEditRole(role));
+    if (editRoleBtn) editRoleBtn.addEventListener('click', () => openEditRole(role).catch((err) => toast(err.message, 'error')));
     if (deleteRoleBtn) deleteRoleBtn.addEventListener('click', () => confirmDeleteRole(role, role.organization && role.organization.slug));
     bindRoleActions(root);
+    bindApplicantActions(root);
+    bindInvitations(root);
     wireDevActions(root);
   }
 
   function applicantLine(person) {
+    const decision = person.decision || 'pending';
+    const decide = decision === 'pending'
+      ? '<button class="btn btn-sm btn-primary" type="button" data-decide="accepted" data-roleid="' + person.roleid +
+        '" data-userid="' + person.userid + '" data-applicant-name="' + escapeHtml(person.displayName) + '">accept</button>' +
+        '<button class="btn btn-sm" type="button" data-decide="rejected" data-roleid="' + person.roleid +
+        '" data-userid="' + person.userid + '" data-applicant-name="' + escapeHtml(person.displayName) + '">reject</button>'
+      : '<span class="badge' + (decision === 'accepted' ? ' accent' : '') + '">' + escapeHtml(decision) + '</span>';
     return '<div class="panel listing-card spread"><div><a href="#/dev/' + encodeURIComponent(person.login) + '"><b>' +
       escapeHtml(person.displayName) + '</b> <span class="faint">@' + escapeHtml(person.login) + '</span></a>' +
       '<div class="faint">applied ' + escapeHtml(timeAgo(person.appliedAt) || 'just now') + '</div></div>' +
-      '<button class="btn btn-sm" type="button" data-message="' + person.userid + '">' + ICON.mail + ' message</button></div>';
+      '<div class="row">' + decide +
+      '<button class="btn btn-sm" type="button" data-message="' + person.userid + '">' + ICON.mail + ' message</button></div></div>';
+  }
+
+  function bindApplicantActions(root) {
+    $$('[data-decide]', root).forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', () => {
+        const decision = btn.dataset.decide;
+        const name = btn.dataset.applicantName || 'this applicant';
+        messageDialog(
+          decision === 'accepted' ? 'Accept application' : 'Reject application',
+          decision === 'accepted'
+            ? 'Accept ' + name + '? They get a message and an invitation to join the organization or decline.'
+            : 'Reject ' + name + '\'s application?',
+          '<button class="btn" type="button" data-close>Cancel</button>' +
+          '<button class="btn btn-primary" type="button" id="confirm-decision">' +
+          (decision === 'accepted' ? 'Accept' : 'Reject') + '</button>');
+        $('#confirm-decision').addEventListener('click', async () => {
+          const confirm = $('#confirm-decision');
+          confirm.disabled = true;
+          try {
+            await API.decideApplication(btn.dataset.roleid, btn.dataset.userid, decision);
+            closeModal();
+            toast(decision === 'accepted' ? 'Application accepted' : 'Application rejected', 'success');
+            await render();
+          } catch (err) {
+            toast(err.message, 'error');
+            if (confirm) confirm.disabled = false;
+          }
+        });
+      });
+    });
+  }
+
+  function invitationCard(invite) {
+    const role = invite.role && invite.role.name ? ' for ' + escapeHtml(invite.role.name) : '';
+    return '<div class="panel listing-card spread"><div><a href="#/orgs/' + encodeURIComponent(invite.organization.slug) + '"><b>' +
+      escapeHtml(invite.organization.name) + '</b></a>' +
+      '<div class="faint">Invitation to join' + role + '</div></div>' +
+      '<div class="row">' +
+      '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">Join</button>' +
+      '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">Decline</button></div></div>';
+  }
+
+  function bindInvitations(root) {
+    $$('[data-join-invite]', root).forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', () => respondToInvitation(btn, true));
+    });
+    $$('[data-decline-invite]', root).forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', () => respondToInvitation(btn, false));
+    });
+  }
+
+  async function respondToInvitation(btn, accept) {
+    btn.disabled = true;
+    try {
+      if (accept) await API.acceptInvitation(btn.dataset.joinInvite);
+      else await API.declineInvitation(btn.dataset.declineInvite);
+      toast(accept ? 'You joined the organization' : 'Invitation declined', 'success');
+      await render();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+    }
   }
 
   async function setRoleStatus(role, status) {
@@ -2912,9 +3023,10 @@
     if (!requireGate(root)) return;
     if (slug) return viewOrganization(root, slug);
 
-    const [mine, all] = await Promise.all([
+    const [mine, all, invitations] = await Promise.all([
       API.organizations({ mine: true }),
       API.organizations(),
+      API.invitations().catch(() => []),
     ]);
     const mineIds = new Set((mine || []).map((org) => org.organizationid));
     const others = (all || []).filter((org) => !mineIds.has(org.organizationid));
@@ -2923,6 +3035,10 @@
       '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' Organizations</h1>' +
       '<button class="btn btn-primary" type="button" id="create-org">' + ICON.plus + ' New organization</button></div>' +
       '<p class="sub">An organization uses your existing login. You create it, and you are the owner.</p>' +
+      ((invitations || []).length
+        ? '<section class="section"><h2 class="section-title">Invitations</h2><div class="stack">' +
+          invitations.map(invitationCard).join('') + '</div></section>'
+        : '') +
       '<section class="section"><h2 class="section-title">Yours</h2><div class="card-grid">' +
       ((mine || []).length ? mine.map(orgCard).join('') : '<div class="empty"><p>You have not created or joined an organization yet.</p></div>') +
       '</div></section>' +
@@ -2931,6 +3047,7 @@
       '</div></section>';
 
     $('#create-org').addEventListener('click', openCreateOrganization);
+    bindInvitations(root);
   }
 
   async function viewOrganization(root, slug) {
@@ -3003,10 +3120,14 @@
     }
     const post = $('#post-role');
     if (post) post.addEventListener('click', () => openCreateRole(org));
-    $$('[data-edit-role]', root).forEach((btn) => btn.addEventListener('click', () => openEditRole({ roleid: btn.dataset.editRole })));
+    $$('[data-edit-role]', root).forEach((btn) => btn.addEventListener('click', () => {
+      const listed = (org.roles || []).find((role) => String(role.roleid) === btn.dataset.editRole);
+      openEditRole(listed || { roleid: btn.dataset.editRole }).catch((err) => toast(err.message, 'error'));
+    }));
     $$('[data-delete-role]', root).forEach((btn) => btn.addEventListener('click', () => {
       confirmDeleteRole({ roleid: btn.dataset.deleteRole, name: btn.dataset.roleName }, org.slug);
     }));
+    bindApplicantActions(root);
     bindRoleActions(root);
     wireDevActions(root);
   }
