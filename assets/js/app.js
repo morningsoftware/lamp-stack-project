@@ -515,7 +515,7 @@
     const fields = field('login', registering ? 'Username' : 'Username or email', {required:true, maxlength:registering ? 50 : 255, minlength:registering ? 3 : 1, autocomplete:'username'}) +
       (registering ? field('email','Email',{type:'email',required:true,maxlength:255,autocomplete:'email'}) +
         '<div class="form-columns">' + field('firstName','First name',{maxlength:50,autocomplete:'given-name'}) + field('lastName','Last name',{maxlength:50,autocomplete:'family-name'}) + '</div>' +
-        field('githubUsername','GitHub username',{required:true,maxlength:39,placeholder:'Your GitHub username','aria-describedby':'github-help'}) +
+        field('githubUsername','GitHub username',{required:true,maxlength:39,'aria-describedby':'github-help'}) +
         '<p class="form-hint" id="github-help">Use a GitHub account you own that is not already linked to another account.</p>' + passwordFields() :
         field('password','Password',{type:'password',required:true,autocomplete:'current-password'}));
     formDialog(registering ? 'Create account' : 'Sign in', registering ? 'Keep your contacts together and connect with your team.' : 'Welcome back. Sign in to manage your contacts.', fields,
