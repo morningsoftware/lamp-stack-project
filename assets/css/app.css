@@ -661,3 +661,22 @@ input[readonly] { background:var(--surface-2); color:var(--muted); }
 .table-scroll .data-table { min-width: 780px; }
 .table-scroll th { white-space: nowrap; }
 .table-scroll .row-actions { min-width: 220px; }
+
+.listing-card { padding: 16px; display: grid; gap: 8px; align-content: start; }
+.listing-card h3 { margin: 0; font-size: 16px; font-weight: 650; }
+.listing-desc {
+  margin: 0; color: var(--muted); font-size: 14px; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.listing-copy { color: var(--muted); line-height: 1.5; max-width: 68ch; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font-family: var(--mono); font-size: 11px; padding: 2px 7px;
+  border: 1px solid var(--line); border-radius: 2px; color: var(--muted);
+}
+.bubble .share-card {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 8px 10px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.bubble.me .share-card { background: var(--surface); }

@@ -379,12 +379,16 @@
     const slot = $('#profile-slot');
     const navContacts = $('#nav-contacts');
     const navMessages = $('#nav-messages');
+    const navRoles = $('#nav-roles');
+    const navOrgs = $('#nav-orgs');
     const navAdmin = $('#nav-admin');
     const navBrowse = $('#nav-browse');
     const navSearch = $('#nav-search');
 
     if (!isLoggedIn()) {
       if (navContacts) navContacts.classList.add('hidden');
+      if (navRoles) navRoles.classList.add('hidden');
+      if (navOrgs) navOrgs.classList.add('hidden');
       if (navMessages) navMessages.classList.add('hidden');
       if (navAdmin) navAdmin.classList.add('hidden');
       if (navBrowse) navBrowse.classList.add('hidden');
@@ -400,6 +404,8 @@
     }
 
     if (navContacts) navContacts.classList.remove('hidden');
+    if (navRoles) navRoles.classList.remove('hidden');
+    if (navOrgs) navOrgs.classList.remove('hidden');
     if (navMessages) navMessages.classList.remove('hidden');
     if (navBrowse) navBrowse.classList.remove('hidden');
     if (navSearch) navSearch.classList.remove('hidden');
@@ -620,6 +626,8 @@
       if (resource === 'following' || resource === 'contacts') return await viewFollowing(root, query);
       if (resource === 'compare') return await viewCompare(root, query);
       if (resource === 'messages') return await viewMessages(root, parts[1]);
+      if (resource === 'roles') return await viewRoles(root, query, parts[1]);
+      if (resource === 'orgs') return await viewOrganizations(root, parts[1]);
       if (resource === 'settings') return await viewSettings(root, query);
       if (resource === 'admin') return await viewAdmin(root, query);
       if (resource === 'reset') return await viewReset(root, query);
@@ -1859,7 +1867,7 @@
           const sender = m.sender_displayname || m.sender_login || '';
           return '<div class="bubble' + (mine ? ' me' : '') + '">' +
             (!mine && isGroup ? '<span class="bubble-sender">' + escapeHtml(sender) + '</span>' : '') +
-            escapeHtml(m.body) + '</div>';
+            '<div>' + escapeHtml(m.body) + '</div>' + shareCardHtml(m.share) + '</div>';
         }).join('')
       : '<div class="empty"><p class="muted">no messages yet. say hello!</p></div>';
 
@@ -2513,6 +2521,351 @@
         if (button) button.disabled = false;
       }
     });
+  }
+
+  /* ---------------- Organizations and roles ---------------- */
+
+  function safeHttpUrl(value) {
+    const url = String(value || '').trim();
+    return /^https?:\/\//i.test(url) ? url : '';
+  }
+
+  function textArea(name, label, value) {
+    return '<div class="field"><label for="field-' + name + '">' + escapeHtml(label) + '</label>' +
+      '<textarea class="textarea" id="field-' + name + '" name="' + name + '" maxlength="4000">' +
+      escapeHtml(value || '') + '</textarea></div>';
+  }
+
+  function shareCardHtml(share) {
+    if (!share) return '';
+    if (share.type === 'role') {
+      const label = (share.name || 'Role') + (share.organization ? ' · ' + share.organization : '');
+      return '<a class="share-card" href="#/roles/' + share.roleid + '">' + ICON.briefcase + ' ' + escapeHtml(label) + '</a>';
+    }
+    return '<a class="share-card" href="#/orgs/' + encodeURIComponent(share.slug || '') + '">' +
+      ICON.briefcase + ' ' + escapeHtml(share.name || 'Organization') + '</a>';
+  }
+
+  function openShareModal(kind, id, label) {
+    API.conversations().then((convos) => {
+      convos = convos || [];
+      const options = convos.map((c) =>
+        '<option value="' + c.conversationid + '">' + escapeHtml(conversationTitle(c)) + '</option>').join('');
+      const picker = options
+        ? '<div class="field"><label for="field-conversationid">Conversation</label>' +
+          '<select class="select" id="field-conversationid" name="conversationid">' + options + '</select></div>'
+        : field('login', 'Username to message', { required: true, maxlength: 50 });
+      formDialog('Share ' + label, 'Send this in a message. The other person can open it from the conversation.',
+        picker +
+        '<div class="field"><label for="field-body">Message</label>' +
+        '<textarea class="textarea" id="field-body" name="body" required maxlength="2000">Take a look at ' +
+        escapeHtml(label) + '</textarea></div>',
+        'Send',
+        async (data) => {
+          let conversationid = data.conversationid;
+          if (!conversationid) {
+            const started = await API.startConversation({ recipientLogin: data.login });
+            conversationid = started.conversationid;
+          }
+          const share = kind === 'role' ? { roleid: Number(id) } : { organizationid: Number(id) };
+          await API.sendMessage(conversationid, data.body, share);
+          toast('Shared', 'success');
+        });
+    }).catch((err) => toast(err.message, 'error'));
+  }
+
+  function bindRoleActions(scope) {
+    $$('[data-apply]', scope).forEach((btn) => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await API.applyToRole(btn.dataset.apply);
+        toast('Application sent', 'success');
+        await render();
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.disabled = false;
+      }
+    }));
+    $$('[data-withdraw]', scope).forEach((btn) => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await API.withdrawApplication(btn.dataset.withdraw);
+        toast('Application withdrawn', 'success');
+        await render();
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.disabled = false;
+      }
+    }));
+    $$('[data-share-role]', scope).forEach((btn) => btn.addEventListener('click', () => {
+      openShareModal('role', btn.dataset.shareRole, btn.dataset.shareLabel || 'this role');
+    }));
+    $$('[data-share-org]', scope).forEach((btn) => btn.addEventListener('click', () => {
+      openShareModal('organization', btn.dataset.shareOrg, btn.dataset.shareLabel || 'this organization');
+    }));
+  }
+
+  function roleCard(role) {
+    const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
+    let apply = '';
+    if (role.status === 'open' && !role.canManage) {
+      apply = role.applied
+        ? '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>'
+        : '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">apply</button>';
+    } else if (role.applied) {
+      apply = '<span class="badge">applied</span>';
+    }
+    return '<article class="panel listing-card">' +
+      '<div class="spread"><h3><a href="#/roles/' + role.roleid + '">' + escapeHtml(role.name) + '</a></h3>' +
+      '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.statusLabel) + '</span></div>' +
+      '<a class="muted" href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a>' +
+      (role.description ? '<p class="listing-desc">' + escapeHtml(role.description) + '</p>' : '') +
+      (skills ? '<div class="chip-row">' + skills + '</div>' : '') +
+      '<div class="row">' +
+      '<span class="faint">' + role.applicantCount + (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' +
+      apply +
+      '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' + escapeHtml(role.name) + '">' +
+      ICON.share + ' share</button></div></article>';
+  }
+
+  function openCreateOrganization() {
+    formDialog('Create organization', 'You stay signed in with your user account. Creating an organization makes you its owner.',
+      field('name', 'Name', { required: true, maxlength: 100 }) +
+      field('slug', 'Address', { maxlength: 50, placeholder: 'optional, from the name' }) +
+      textArea('description', 'Description') +
+      field('location', 'Location', { maxlength: 100 }) +
+      field('website', 'Website', { maxlength: 255 }),
+      'Create',
+      async (data) => {
+        const created = await API.createOrganization(data);
+        toast('Organization created', 'success');
+        location.hash = '#/orgs/' + encodeURIComponent(created.slug);
+      });
+  }
+
+  function openEditOrganization(org) {
+    formDialog('Edit organization', org.name,
+      field('name', 'Name', { required: true, maxlength: 100 }, org.name) +
+      textArea('description', 'Description', org.description) +
+      field('location', 'Location', { maxlength: 100 }, org.location || '') +
+      field('website', 'Website', { maxlength: 255 }, org.website || ''),
+      'Save',
+      async (data) => {
+        await API.updateOrganization(org.slug, data);
+        toast('Organization updated', 'success');
+        await render();
+      });
+  }
+
+  function openAddMember(org) {
+    formDialog('Add member', 'They must already have a collab.dev account. They sign in with their own username.',
+      field('login', 'Username', { required: true, maxlength: 50 }),
+      'Add',
+      async (data) => {
+        await API.addOrganizationMember(org.slug, data.login);
+        toast('Member added', 'success');
+        await render();
+      });
+  }
+
+  function openCreateRole(org) {
+    formDialog('Post a role', 'Skills must already exist in the catalog, separated by commas.',
+      field('name', 'Role name', { required: true, maxlength: 100 }) +
+      textArea('description', 'Description') +
+      field('skills', 'Skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }),
+      'Post role',
+      async (data) => {
+        const created = await API.createRole({
+          organizationid: org.organizationid,
+          name: data.name,
+          description: data.description,
+          skills: data.skills,
+        });
+        toast('Role posted', 'success');
+        location.hash = '#/roles/' + created.roleid;
+      });
+  }
+
+  async function viewRoles(root, query, roleid) {
+    if (!requireGate(root)) return;
+    if (roleid) return viewRole(root, roleid);
+
+    const status = query.status === 'closed' || query.status === 'all' ? query.status : 'open';
+    const params = {};
+    if (status !== 'all') params.status = status;
+    if (query.q) params.q = query.q;
+    const roles = await API.roles(params) || [];
+
+    root.innerHTML =
+      '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' Roles</h1></div>' +
+      '<p class="sub">Open roles are accepting applications. Apply once, or share a listing in a message.</p>' +
+      '<div class="row mt">' +
+      '<a class="btn btn-sm' + (status === 'open' ? ' btn-primary' : '') + '" href="#/roles?status=open">Accepting applications</a>' +
+      '<a class="btn btn-sm' + (status === 'closed' ? ' btn-primary' : '') + '" href="#/roles?status=closed">Closed</a>' +
+      '<a class="btn btn-sm' + (status === 'all' ? ' btn-primary' : '') + '" href="#/roles?status=all">All</a>' +
+      '</div>' +
+      '<form class="search-form mt" id="role-search">' +
+      '<input class="search-input" name="q" type="search" aria-label="Search roles" placeholder="search roles or organizations" value="' + escapeHtml(query.q || '') + '">' +
+      '<button class="btn" type="submit">' + ICON.search + '</button></form>' +
+      '<div class="card-grid section">' +
+      (roles.length ? roles.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
+      '</div>';
+
+    $('#role-search').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = new FormData(e.target).get('q');
+      const params = new URLSearchParams();
+      params.set('status', status);
+      if (q) params.set('q', q);
+      location.hash = '#/roles?' + params.toString();
+    });
+    bindRoleActions(root);
+  }
+
+  async function viewRole(root, roleid) {
+    const role = await API.role(roleid);
+    const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
+    let action = '';
+    if (role.canManage) {
+      action = role.status === 'open'
+        ? '<button class="btn btn-sm" type="button" id="close-role">Close role</button>'
+        : '<button class="btn btn-sm" type="button" id="open-role">Reopen role</button>';
+    } else if (role.status === 'open') {
+      action = role.applied
+        ? '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>'
+        : '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">apply</button>';
+    }
+    const applicants = role.canManage
+      ? '<section class="section"><h2 class="section-title">Applicants</h2>' +
+        ((role.applicants || []).length
+          ? '<div class="stack">' + role.applicants.map((person) =>
+            '<div class="panel listing-card"><a href="#/dev/' + encodeURIComponent(person.login) + '"><b>' +
+            escapeHtml(person.displayName) + '</b> <span class="faint">@' + escapeHtml(person.login) + '</span></a>' +
+            '<div class="faint">' + escapeHtml(timeAgo(person.appliedAt)) + '</div></div>').join('') + '</div>'
+          : '<p class="muted">No applications yet.</p>') + '</section>'
+      : '';
+
+    root.innerHTML =
+      '<a class="btn btn-sm btn-ghost" href="#/roles">' + ICON.back + ' roles</a>' +
+      '<div class="spread mt"><h1 class="page-title">' + escapeHtml(role.name) + '</h1>' +
+      '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.statusLabel) + '</span></div>' +
+      '<p><a href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a></p>' +
+      (role.description ? '<p class="listing-copy">' + escapeHtml(role.description) + '</p>' : '') +
+      (skills ? '<div class="chip-row mt">' + skills + '</div>' : '') +
+      '<div class="row mt"><span class="faint">' + role.applicantCount +
+      (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' + action +
+      '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' +
+      escapeHtml(role.name) + '">' + ICON.share + ' share</button></div>' + applicants;
+
+    const closeBtn = $('#close-role');
+    const openBtn = $('#open-role');
+    if (closeBtn) closeBtn.addEventListener('click', () => setRoleStatus(role, 'closed'));
+    if (openBtn) openBtn.addEventListener('click', () => setRoleStatus(role, 'open'));
+    bindRoleActions(root);
+  }
+
+  async function setRoleStatus(role, status) {
+    try {
+      await API.updateRole(role.roleid, { status });
+      toast(status === 'closed' ? 'Role closed' : 'Role reopened', 'success');
+      await render();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function orgCard(org) {
+    return '<article class="panel listing-card">' +
+      '<div class="spread"><h3><a href="#/orgs/' + encodeURIComponent(org.slug) + '">' + escapeHtml(org.name) + '</a></h3>' +
+      (org.membership ? '<span class="badge accent">' + escapeHtml(org.membership) + '</span>' : '') + '</div>' +
+      (org.description ? '<p class="listing-desc">' + escapeHtml(org.description) + '</p>' : '') +
+      '<div class="faint">' + (org.openRoleCount || 0) + ' open roles · ' + (org.memberCount || 0) + ' members</div>' +
+      '</article>';
+  }
+
+  async function viewOrganizations(root, slug) {
+    if (!requireGate(root)) return;
+    if (slug) return viewOrganization(root, slug);
+
+    const [mine, all] = await Promise.all([
+      API.organizations({ mine: true }),
+      API.organizations(),
+    ]);
+    const mineIds = new Set((mine || []).map((org) => org.organizationid));
+    const others = (all || []).filter((org) => !mineIds.has(org.organizationid));
+
+    root.innerHTML =
+      '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' Organizations</h1>' +
+      '<button class="btn btn-primary" type="button" id="create-org">' + ICON.plus + ' New organization</button></div>' +
+      '<p class="sub">An organization uses your existing login. You create it, and you are the owner.</p>' +
+      '<section class="section"><h2 class="section-title">Yours</h2><div class="card-grid">' +
+      ((mine || []).length ? mine.map(orgCard).join('') : '<div class="empty"><p>You have not created or joined an organization yet.</p></div>') +
+      '</div></section>' +
+      '<section class="section"><h2 class="section-title">Directory</h2><div class="card-grid">' +
+      (others.length ? others.map(orgCard).join('') : '<div class="empty"><p>No other organizations yet.</p></div>') +
+      '</div></section>';
+
+    $('#create-org').addEventListener('click', openCreateOrganization);
+  }
+
+  async function viewOrganization(root, slug) {
+    const org = await API.organization(slug);
+    const isOwner = org.membership === 'owner';
+    const isMember = !!org.membership;
+    const members = (org.members || []).map((person) =>
+      '<div class="spread panel listing-card"><div><a href="#/dev/' + encodeURIComponent(person.login) + '"><b>' +
+      escapeHtml(person.displayName) + '</b></a> <span class="faint">@' + escapeHtml(person.login) + '</span></div>' +
+      '<div class="row"><span class="badge">' + escapeHtml(person.membership) + '</span>' +
+      (isOwner && Number(person.userid) !== Number(state.user.userid)
+        ? '<button class="btn btn-sm btn-ghost" type="button" data-remove-member="' + person.userid + '" data-member-name="' +
+          escapeHtml(person.displayName) + '">remove</button>'
+        : '') +
+      '</div></div>').join('');
+    const roles = (org.roles || []).map((role) =>
+      '<div class="spread panel listing-card"><div><a href="#/roles/' + role.roleid + '"><b>' + escapeHtml(role.name) +
+      '</b></a><div class="faint">' + escapeHtml(role.statusLabel) + ' · ' + role.applicantCount + ' applicants</div></div>' +
+      '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.status) + '</span></div>').join('');
+
+    root.innerHTML =
+      '<a class="btn btn-sm btn-ghost" href="#/orgs">' + ICON.back + ' organizations</a>' +
+      '<div class="spread mt"><h1 class="page-title">' + escapeHtml(org.name) + '</h1>' +
+      '<div class="row">' +
+      (isOwner ? '<button class="btn btn-sm" type="button" id="edit-org">edit</button>' : '') +
+      (isMember ? '<button class="btn btn-sm btn-primary" type="button" id="post-role">' + ICON.plus + ' Post role</button>' : '') +
+      '<button class="btn btn-sm" type="button" data-share-org="' + org.organizationid + '" data-share-label="' +
+      escapeHtml(org.name) + '">' + ICON.share + ' share</button></div></div>' +
+      '<p class="faint">@' + escapeHtml(org.slug) +
+      (org.location ? ' · ' + escapeHtml(org.location) : '') +
+      (safeHttpUrl(org.website) ? ' · <a href="' + escapeHtml(safeHttpUrl(org.website)) + '">' + escapeHtml(org.website) + '</a>' : '') + '</p>' +
+      (org.description ? '<p class="listing-copy">' + escapeHtml(org.description) + '</p>' : '') +
+      '<section class="section"><div class="spread"><h2 class="section-title">People</h2>' +
+      (isOwner ? '<button class="btn btn-sm" type="button" id="add-member">' + ICON.plus + ' Add member</button>' : '') +
+      '</div><div class="stack">' + (members || '<p class="muted">No members.</p>') + '</div></section>' +
+      '<section class="section"><h2 class="section-title">Roles</h2><div class="stack">' +
+      (roles || '<p class="muted">No roles posted yet.</p>') + '</div></section>';
+
+    if (isOwner) {
+      $('#edit-org').addEventListener('click', () => openEditOrganization(org));
+      $('#add-member').addEventListener('click', () => openAddMember(org));
+      $$('[data-remove-member]', root).forEach((btn) => btn.addEventListener('click', () => {
+        messageDialog('Remove member', 'Remove ' + btn.dataset.memberName + ' from ' + org.name + '?',
+          '<button class="btn" type="button" data-close>Cancel</button>' +
+          '<button class="btn btn-primary" type="button" id="confirm-remove">Remove</button>');
+        $('#confirm-remove').addEventListener('click', async () => {
+          try {
+            await API.removeOrganizationMember(org.slug, btn.dataset.removeMember);
+            closeModal();
+            toast('Member removed', 'success');
+            await render();
+          } catch (err) {
+            toast(err.message, 'error');
+          }
+        });
+      }));
+    }
+    const post = $('#post-role');
+    if (post) post.addEventListener('click', () => openCreateRole(org));
+    bindRoleActions(root);
   }
 
   /* ---------------- Theme ---------------- */
