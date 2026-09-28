@@ -2728,21 +2728,28 @@
   }
 
   function openCreateRole(org) {
-    formDialog('post a role', 'Skills must already exist in the catalog, separated by commas.',
+    const selected = [];
+    formDialog('post a role', 'Skills must already exist in the catalog.',
       field('name', 'role name', { required: true, maxlength: 100 }) +
       textArea('description', 'description') +
-      field('skills', 'skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }),
+      '<div class="field"><label>skills</label><div id="role-skills-picker"></div></div>',
       'post role',
       async (data) => {
         const created = await API.createRole({
           organizationid: org.organizationid,
           name: data.name,
           description: data.description,
-          skills: data.skills,
+          skills: selected.join(','),
         });
         toast('role posted', 'success');
         location.hash = '#/roles/' + created.roleid;
       });
+
+    API.skills().then((catalog) => {
+      const names = (catalog || []).map((s) => s.name);
+      const host = $('#role-skills-picker');
+      if (host) createMultiSelect(host, names, selected, 'type a skill…', () => {});
+    }).catch(() => {});
   }
 
   async function viewRoles(root, query, roleid) {
