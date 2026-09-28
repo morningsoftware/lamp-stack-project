@@ -2904,7 +2904,7 @@
       (org.location ? ' · ' + escapeHtml(org.location) : '') +
       (safeHttpUrl(org.website) ? ' · <a href="' + escapeHtml(safeHttpUrl(org.website)) + '">' + escapeHtml(org.website) + '</a>' : '') + '</p>' +
       (org.description ? '<p class="listing-copy">' + escapeHtml(org.description) + '</p>' : '') +
-      '<section class="section"><div class="spread"><h2 class="section-title">people</h2>' +
+      '<section class="section"><div class="spread" style="margin-bottom:12px"><h2 class="section-title" style="margin:0">people</h2>' +
       (isOwner ? '<button class="btn btn-sm" type="button" id="add-member">' + ICON.plus + ' add member</button>' : '') +
       '</div><div class="stack">' + (members || '<p class="muted">No members.</p>') + '</div></section>' +
       '<section class="section"><h2 class="section-title">roles</h2><div class="stack">' +
