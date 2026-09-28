@@ -33,7 +33,10 @@ if ($sub === null) {
     if (requestMethod() === 'PUT') {
         updateOrganization($db, $org, $userid);
     }
-    header('Allow: GET, PUT');
+    if (requestMethod() === 'DELETE') {
+        deleteOrganization($db, $org, $userid);
+    }
+    header('Allow: GET, PUT, DELETE');
     respond(405, ['error' => 'Method not allowed']);
 }
 
@@ -155,25 +158,47 @@ function updateOrganization($db, $org, $userid) {
     $description = isset($body['description']) ? clean($body['description']) : '';
     $location = isset($body['location']) ? clean($body['location']) : '';
     $website = isset($body['website']) ? clean($body['website']) : '';
+    $slug = $org['slug'];
+    if (isset($body['slug']) && clean($body['slug']) !== '') {
+        $next = slugify(clean($body['slug']));
+        if ($next !== $org['slug']) {
+            $slug = uniqueSlug($db, $next, true);
+        }
+    }
 
     try {
         $stmt = $db->prepare(
             'UPDATE organizations
-             SET name = :name, description = :description, location = :location, website = :website
+             SET name = :name, slug = :slug, description = :description, location = :location, website = :website
              WHERE organizationid = :id'
         );
         $stmt->execute([
             ':name'        => $name,
+            ':slug'        => $slug,
             ':description' => $description !== '' ? $description : null,
             ':location'    => $location !== '' ? $location : null,
             ':website'     => $website !== '' ? $website : null,
             ':id'          => (int) $org['organizationid'],
         ]);
     } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            respond(409, ['error' => 'That organization address is already taken']);
+        }
         organizationFail($e, 'Could not update organization');
     }
 
-    respond(200, ['data' => ['organizationid' => (int) $org['organizationid'], 'slug' => $org['slug']]]);
+    respond(200, ['data' => ['organizationid' => (int) $org['organizationid'], 'slug' => $slug]]);
+}
+
+function deleteOrganization($db, $org, $userid) {
+    requireOwner($db, (int) $org['organizationid'], $userid);
+    try {
+        $stmt = $db->prepare('DELETE FROM organizations WHERE organizationid = :id');
+        $stmt->execute([':id' => (int) $org['organizationid']]);
+    } catch (PDOException $e) {
+        organizationFail($e, 'Could not delete organization');
+    }
+    respond(200, ['data' => ['message' => 'Organization deleted']]);
 }
 
 function addOrganizationMember($db, $org, $userid) {
@@ -302,10 +327,36 @@ function organizationRoles($db, $organizationid, $userid) {
          ORDER BY r.status = \'open\' DESC, r.created_at DESC'
     );
     $stmt->execute([':id' => $organizationid]);
+    $rows = $stmt->fetchAll();
+    $people = [];
+    if (membershipOf($db, $organizationid, $userid) && $rows) {
+        $ids = [];
+        foreach ($rows as $row) {
+            $ids[] = (int) $row['roleid'];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $apps = $db->prepare(
+            "SELECT a.roleid, u.userid, u.loginuid, u.displayname, u.firstname, u.lastname, a.created_at
+             FROM applications a
+             JOIN users u ON u.userid = a.userid
+             WHERE a.roleid IN ({$placeholders})
+             ORDER BY a.created_at DESC"
+        );
+        $apps->execute($ids);
+        foreach ($apps->fetchAll() as $person) {
+            $people[(int) $person['roleid']][] = [
+                'userid'      => (int) $person['userid'],
+                'login'       => $person['loginuid'],
+                'displayName' => $person['displayname'] ?: trim($person['firstname'] . ' ' . $person['lastname']),
+                'appliedAt'   => $person['created_at'],
+            ];
+        }
+    }
     $roles = [];
-    foreach ($stmt->fetchAll() as $row) {
+    foreach ($rows as $row) {
+        $roleid = (int) $row['roleid'];
         $roles[] = [
-            'roleid'         => (int) $row['roleid'],
+            'roleid'         => $roleid,
             'name'           => $row['name'],
             'description'    => $row['description'],
             'status'         => $row['status'],
@@ -313,6 +364,7 @@ function organizationRoles($db, $organizationid, $userid) {
             'createdAt'      => $row['created_at'],
             'closedAt'       => $row['closed_at'],
             'applicantCount' => (int) $row['applicant_count'],
+            'applicants'     => $people[$roleid] ?? [],
         ];
     }
     return $roles;

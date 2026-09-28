@@ -84,5 +84,4 @@ ALTER TABLE messages
   ADD CONSTRAINT fk_messages_role FOREIGN KEY (roleid)
     REFERENCES roles (roleid) ON DELETE SET NULL,
   ADD CONSTRAINT fk_messages_organization FOREIGN KEY (organizationid)
-    REFERENCES organizations (organizationid) ON DELETE SET NULL,
-  ADD CONSTRAINT chk_messages_one_share CHECK (roleid IS NULL OR organizationid IS NULL);
+    REFERENCES organizations (organizationid) ON DELETE SET NULL;

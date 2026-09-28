@@ -32,7 +32,10 @@ if ($sub === null) {
     if (requestMethod() === 'PUT') {
         updateRole($db, $roleid, $userid);
     }
-    header('Allow: GET, PUT');
+    if (requestMethod() === 'DELETE') {
+        deleteRole($db, $roleid, $userid);
+    }
+    header('Allow: GET, PUT, DELETE');
     respond(405, ['error' => 'Method not allowed']);
 }
 
@@ -64,7 +67,13 @@ function listRoles($db, $userid) {
     }
 
     $sql = roleSelectSql() . ' WHERE 1 = 1';
-    $params = [':me' => $userid, ':me_member' => $userid];
+    $params = [':me' => $userid, ':me_member' => $userid, ':me_applied_at' => $userid];
+    if (isset($_GET['applied']) && $_GET['applied'] === '1') {
+        $sql .= ' AND EXISTS (
+                    SELECT 1 FROM applications applied_filter
+                    WHERE applied_filter.roleid = r.roleid AND applied_filter.userid = :applied_user)';
+        $params[':applied_user'] = $userid;
+    }
     if ($status !== '') {
         $sql .= ' AND r.status = :status';
         $params[':status'] = $status;
@@ -201,6 +210,20 @@ function updateRole($db, $roleid, $userid) {
     respond(200, ['data' => ['roleid' => $roleid, 'status' => $status]]);
 }
 
+function deleteRole($db, $roleid, $userid) {
+    $row = fetchRole($db, $roleid, $userid);
+    if (!(int) $row['is_member']) {
+        respond(403, ['error' => 'Only organization members can delete this role']);
+    }
+    try {
+        $stmt = $db->prepare('DELETE FROM roles WHERE roleid = :id');
+        $stmt->execute([':id' => $roleid]);
+    } catch (PDOException $e) {
+        roleFail($e, 'Could not delete role');
+    }
+    respond(200, ['data' => ['message' => 'Role deleted']]);
+}
+
 function applyToRole($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     if ($row['status'] !== 'open') {
@@ -245,6 +268,8 @@ function roleSelectSql() {
     return 'SELECT r.roleid, r.organizationid, r.name, r.description, r.status, r.created_at, r.closed_at,
                    o.name AS org_name, o.slug AS org_slug,
                    (SELECT COUNT(*) FROM applications a WHERE a.roleid = r.roleid) AS applicant_count,
+                   (SELECT a.created_at FROM applications a
+                     WHERE a.roleid = r.roleid AND a.userid = :me_applied_at LIMIT 1) AS applied_at,
                    EXISTS(SELECT 1 FROM applications mine
                           WHERE mine.roleid = r.roleid AND mine.userid = :me) AS applied,
                    EXISTS(SELECT 1 FROM organization_members mem
@@ -258,6 +283,7 @@ function fetchRole($db, $roleid, $userid) {
         $stmt = $db->prepare(roleSelectSql() . ' WHERE r.roleid = :id LIMIT 1');
         $stmt->bindValue(':me', $userid, PDO::PARAM_INT);
         $stmt->bindValue(':me_member', $userid, PDO::PARAM_INT);
+        $stmt->bindValue(':me_applied_at', $userid, PDO::PARAM_INT);
         $stmt->bindValue(':id', $roleid, PDO::PARAM_INT);
         $stmt->execute();
         $row = $stmt->fetch();
@@ -292,6 +318,7 @@ function shapeRoles($db, $rows) {
             'closedAt'       => $row['closed_at'],
             'applicantCount' => (int) $row['applicant_count'],
             'applied'        => (int) $row['applied'] === 1,
+            'appliedAt'      => $row['applied_at'],
             'canManage'      => (int) $row['is_member'] === 1,
             'organization'   => [
                 'organizationid' => (int) $row['organizationid'],
