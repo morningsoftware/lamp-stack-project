@@ -1828,7 +1828,7 @@
 
   function startMessagesPolling(conversationid) {
     stopMessagesPolling();
-    messagesPollTimer = setInterval(() => pollMessages(conversationid), 3000);
+    messagesPollTimer = setInterval(() => pollMessages(conversationid), 5000);
   }
 
   async function pollMessages(conversationid) {
