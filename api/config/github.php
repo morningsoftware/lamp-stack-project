@@ -98,25 +98,44 @@ function githubRequest($url) {
  *
  * @param string $username Owner of the repository
  * @param array $repo Repository data from the GitHub API
- * @return array{0:int,1:string|null,2:string|null}
+ * @return array{0:int,1:string|null,2:string|null}|null null when data is not available yet
  */
 function fetchCommitActivity($username, $repo) {
     $owner = $repo['owner']['login'] ?? $username;
     $name  = $repo['name'];
     $url   = "https://api.github.com/repos/{$owner}/{$name}/stats/commit_activity";
 
-    // GitHub computes commit activity asynchronously: the first request
-    // often returns 202 with an empty body, so retry briefly before giving up.
-    $data = null;
-    for ($attempt = 0; $attempt < 3 && !is_array($data); $attempt++) {
-        if ($attempt > 0) {
-            usleep(800000);
+    // GitHub computes commit activity asynchronously: the first request often
+    // returns 202 with an empty body. Retry with backoff, and on a final miss
+    // return null so the caller preserves any previously cached commit data
+    // instead of overwriting it with zeros/nulls.
+    $data   = null;
+    $delays = [0, 1000000, 2000000, 4000000, 8000000];
+    foreach ($delays as $delay) {
+        if ($delay > 0) {
+            usleep($delay);
         }
-        $data = githubRequest($url);
+        $result = githubFetch($url);
+
+        // 202 = still computing, 0 = transient network failure: keep retrying.
+        if ($result['status'] === 202 || $result['status'] === 0) {
+            continue;
+        }
+        // Definitive failure (rate limit, not found, etc.): stop now.
+        if ($result['status'] < 200 || $result['status'] >= 300) {
+            error_log("GitHub commit activity unavailable for {$owner}/{$name} (status {$result['status']})");
+            return null;
+        }
+        if (is_array($result['data'])) {
+            $data = $result['data'];
+            break;
+        }
+        // 200 with an empty body — treat like a still-computing response.
     }
 
     if (!is_array($data)) {
-        return [0, null, null];
+        error_log("GitHub commit activity not ready for {$owner}/{$name} after retries");
+        return null;
     }
 
     $weekly = [];
@@ -224,35 +243,9 @@ function syncGithubForUser($db, $userid, $username, $profile = null, $repos = nu
             daily_commits = VALUES(daily_commits)'
     );
 
-    // Commit activity is fetched only for the top repositories to avoid
-    // exhausting the GitHub API rate limit.
-    $topRepos = array_values(array_filter($repos, function ($repo) {
-        return isset($repo['id'], $repo['name']);
-    }));
-    usort($topRepos, function ($a, $b) {
-        return (int) ($b['stargazers_count'] ?? 0) <=> (int) ($a['stargazers_count'] ?? 0);
-    });
-    $topRepos = array_slice($topRepos, 0, 10);
-
-    foreach ($topRepos as $repo) {
-        [$commits30d, $weekly, $daily] = fetchCommitActivity($resolvedUsername, $repo);
-        $upsertRepo->execute([
-            ':githubid'       => $githubid,
-            ':repo_id'        => (int) $repo['id'],
-            ':name'           => clean($repo['name']),
-            ':description'    => isset($repo['description']) ? clean($repo['description']) : null,
-            ':url'            => $repo['html_url'] ?? null,
-            ':language'       => $repo['language'] ?? null,
-            ':stars'          => (int) ($repo['stargazers_count'] ?? 0),
-            ':forks'          => (int) ($repo['forks_count'] ?? 0),
-            ':is_fork'        => !empty($repo['fork']) ? 1 : 0,
-            ':commits_30d'    => $commits30d,
-            ':weekly_commits' => $weekly,
-            ':daily_commits'  => $daily,
-        ]);
-    }
-
-    // Any repos beyond the top set are still stored (without commit stats).
+    // Used for repos whose commit activity could not be fetched yet (e.g. the
+    // stats endpoint still returns 202). Leaves any previously cached commit
+    // columns intact rather than overwriting them with zeros/nulls.
     $upsertNoStats = $db->prepare(
         'INSERT INTO github_repositories
             (githubid, github_repo_id, name, description, url, language, stars, forks, is_fork)
@@ -267,6 +260,44 @@ function syncGithubForUser($db, $userid, $username, $profile = null, $repos = nu
             forks = VALUES(forks),
             is_fork = VALUES(is_fork)'
     );
+
+    // Commit activity is fetched only for the top repositories to avoid
+    // exhausting the GitHub API rate limit.
+    $topRepos = array_values(array_filter($repos, function ($repo) {
+        return isset($repo['id'], $repo['name']);
+    }));
+    usort($topRepos, function ($a, $b) {
+        return (int) ($b['stargazers_count'] ?? 0) <=> (int) ($a['stargazers_count'] ?? 0);
+    });
+    $topRepos = array_slice($topRepos, 0, 10);
+
+    foreach ($topRepos as $repo) {
+        $base = [
+            ':githubid'    => $githubid,
+            ':repo_id'     => (int) $repo['id'],
+            ':name'        => clean($repo['name']),
+            ':description' => isset($repo['description']) ? clean($repo['description']) : null,
+            ':url'         => $repo['html_url'] ?? null,
+            ':language'    => $repo['language'] ?? null,
+            ':stars'       => (int) ($repo['stargazers_count'] ?? 0),
+            ':forks'       => (int) ($repo['forks_count'] ?? 0),
+            ':is_fork'     => !empty($repo['fork']) ? 1 : 0,
+        ];
+
+        $activity = fetchCommitActivity($resolvedUsername, $repo);
+        if ($activity === null) {
+            $upsertNoStats->execute($base);
+            continue;
+        }
+        [$commits30d, $weekly, $daily] = $activity;
+        $upsertRepo->execute($base + [
+            ':commits_30d'    => $commits30d,
+            ':weekly_commits' => $weekly,
+            ':daily_commits'  => $daily,
+        ]);
+    }
+
+    // Any repos beyond the top set are still stored (without commit stats).
     $ids = array_column($topRepos, 'id');
     foreach ($repos as $repo) {
         if (!isset($repo['id'], $repo['name']) || in_array($repo['id'], $ids, true)) {
