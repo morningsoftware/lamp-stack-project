@@ -772,7 +772,7 @@
       '<div class="container browse">' +
       '<div class="browse-head">' +
       '<form class="search-form" id="browse-search">' +
-      '<input class="search-input" id="browse-q" type="search" aria-label="Search developer directory" placeholder="search name, @login, skill…" value="' + escapeHtml(browseState.filters.q) + '">' +
+      '<input class="search-input" id="browse-q" type="search" aria-label="Search developers and roles" placeholder="search developers or roles…" value="' + escapeHtml(browseState.filters.q) + '">' +
       '<button class="btn btn-primary" type="submit">' + ICON.search + '</button>' +
       '</form>' +
       '</div>' +
@@ -780,6 +780,7 @@
       '<aside class="filters" id="filters"></aside>' +
       '<div class="browse-main">' +
       '<section id="suggestions"></section>' +
+      '<section id="browse-roles" class="section"></section>' +
       '<div class="spread browse-toolbar">' +
       '<span class="results-count" id="browse-count"></span>' +
       '<label class="inline-field">sort <select class="select" id="sort-select">' +
@@ -1033,7 +1034,10 @@
     const count = $('#browse-count');
     const f = browseState.filters;
 
-    if (reset) grid.innerHTML = skeleton(4);
+    if (reset) {
+      grid.innerHTML = skeleton(4);
+      loadBrowseRoles();
+    }
     more.innerHTML = '';
 
     const params = {
@@ -1075,6 +1079,46 @@
       grid.innerHTML = emptyState('!', 'could not load developers', err.message);
     } finally {
       browseState.loading = false;
+    }
+  }
+
+  function roleMatchesSkills(role, skills, mode) {
+    if (!skills.length) return true;
+    const names = (role.skills || []).map((skill) => String(skill.name || '').toLowerCase());
+    const wanted = skills.map((skill) => skill.toLowerCase());
+    if (mode === 'all') return wanted.every((skill) => names.includes(skill));
+    return wanted.some((skill) => names.includes(skill));
+  }
+
+  async function loadBrowseRoles() {
+    const el = $('#browse-roles');
+    if (!el) return;
+    const f = browseState.filters;
+    try {
+      const roles = await API.roles({ status: 'open', q: f.q }) || [];
+      const list = Array.isArray(roles) ? roles : [];
+      const matched = list.filter((role) => roleMatchesSkills(role, f.skills, f.skillMode));
+      if (!matched.length) {
+        el.classList.toggle('hidden', !list.length);
+        el.innerHTML = list.length
+          ? '<p class="muted">No open roles match these filters.</p>'
+          : '';
+        return;
+      }
+      el.classList.remove('hidden');
+      const shown = matched.slice(0, 6);
+      const params = new URLSearchParams();
+      params.set('status', 'open');
+      if (f.q) params.set('q', f.q);
+      el.innerHTML =
+        '<div class="spread browse-toolbar"><h3 class="section-title" style="margin:0">' +
+        ICON.briefcase + ' open roles</h3>' +
+        '<a class="btn btn-sm" href="#/roles?' + params.toString() + '">all roles</a></div>' +
+        '<div class="card-grid">' + shown.map(roleCard).join('') + '</div>';
+      bindRoleActions(el);
+    } catch (e) {
+      el.classList.remove('hidden');
+      el.innerHTML = '<p class="muted">' + escapeHtml(e.message || 'Open roles could not be loaded.') + '</p>';
     }
   }
 
@@ -2707,12 +2751,14 @@
   function roleCard(role) {
     const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
     let apply = '';
-    if (role.status === 'open' && !role.canManage) {
-      apply = role.applied
-        ? '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>'
-        : '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">apply</button>';
-    } else if (role.applied) {
-      apply = '<span class="badge">applied</span>';
+    const decision = role.decision || (role.applied ? 'pending' : '');
+    if (!role.canManage && role.status === 'open' && (!role.applied || decision === 'rejected')) {
+      apply = '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">' +
+        (decision === 'rejected' ? 'apply again' : 'apply') + '</button>';
+    } else if (!role.canManage && role.applied && decision === 'pending') {
+      apply = '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>';
+    } else if (role.applied && decision) {
+      apply = '<span class="badge' + (decision === 'accepted' ? ' accent' : '') + '">' + escapeHtml(decision) + '</span>';
     }
     return '<article class="panel listing-card">' +
       '<div class="spread"><h3><a href="#/roles/' + role.roleid + '">' + escapeHtml(role.name) + '</a></h3>' +
@@ -2721,7 +2767,10 @@
       (role.description ? '<p class="listing-desc">' + escapeHtml(role.description) + '</p>' : '') +
       (skills ? '<div class="chips">' + skills + '</div>' : '') +
       '<div class="row listing-actions">' +
-      '<span class="faint">' + role.applicantCount + (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' +
+      (role.canManage
+        ? '<a class="btn btn-sm" href="#/roles/' + role.roleid + '">' + role.applicantCount +
+          (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</a>'
+        : '<span class="faint">' + role.applicantCount + (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>') +
       apply +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' + escapeHtml(role.name) + '">' +
       ICON.share + ' share</button></div></article>';
@@ -2745,15 +2794,87 @@
   function openEditOrganization(org) {
     formDialog('edit organization', org.name,
       field('name', 'name', { required: true, maxlength: 100 }, org.name) +
+      field('slug', 'address', { required: true, maxlength: 50 }, org.slug) +
       textArea('description', 'description', org.description) +
       field('location', 'location', { maxlength: 100 }, org.location || '') +
       field('website', 'website', { maxlength: 255 }, org.website || ''),
       'save',
       async (data) => {
-        await API.updateOrganization(org.slug, data);
+        const saved = await API.updateOrganization(org.slug, data);
         toast('organization updated', 'success');
+        if (saved.slug && saved.slug !== org.slug) {
+          location.hash = '#/orgs/' + encodeURIComponent(saved.slug);
+        } else {
+          await render();
+        }
+      });
+  }
+
+  function confirmDeleteOrganization(org) {
+    messageDialog('delete organization', 'Delete ' + org.name + ' and every role posted under it? Applications go with the roles. Messages that shared them keep their text.',
+      '<button class="btn" type="button" data-close>cancel</button>' +
+      '<button class="btn btn-primary" type="button" id="confirm-delete-org">delete</button>');
+    $('#confirm-delete-org').addEventListener('click', async () => {
+      const button = $('#confirm-delete-org');
+      button.disabled = true;
+      try {
+        await API.deleteOrganization(org.slug);
+        closeModal();
+        toast('organization deleted', 'success');
+        location.hash = '#/orgs';
+      } catch (err) {
+        toast(err.message, 'error');
+        if (button) button.disabled = false;
+      }
+    });
+  }
+
+  async function openEditRole(role) {
+    let full = role;
+    let skillsKnown = Array.isArray(role.skills);
+    if (!skillsKnown) {
+      try {
+        full = await API.role(role.roleid);
+        skillsKnown = true;
+      } catch (err) {
+        if (!role || !role.name) throw err;
+        full = role;
+      }
+    }
+    const skillText = (full.skills || []).map((skill) => skill.name).join(', ');
+    formDialog('edit role', full.organization ? full.organization.name : '',
+      field('name', 'role name', { required: true, maxlength: 100 }, full.name) +
+      textArea('description', 'description', full.description) +
+      (skillsKnown ? field('skills', 'skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }, skillText) : '') +
+      '<div class="field"><label for="field-status">status</label><select class="select" id="field-status" name="status">' +
+      '<option value="open"' + (full.status === 'open' ? ' selected' : '') + '>accepting applications</option>' +
+      '<option value="closed"' + (full.status === 'closed' ? ' selected' : '') + '>closed</option></select></div>',
+      'save',
+      async (data) => {
+        if (!skillsKnown) delete data.skills;
+        await API.updateRole(full.roleid, data);
+        toast('role updated', 'success');
         await render();
       });
+  }
+
+  function confirmDeleteRole(role, orgSlug) {
+    messageDialog('delete role', 'Delete ' + (role.name || 'this role') + '? Its applications are removed. Messages that shared it keep their text.',
+      '<button class="btn" type="button" data-close>cancel</button>' +
+      '<button class="btn btn-primary" type="button" id="confirm-delete-role">delete</button>');
+    $('#confirm-delete-role').addEventListener('click', async () => {
+      const button = $('#confirm-delete-role');
+      button.disabled = true;
+      try {
+        await API.deleteRole(role.roleid);
+        closeModal();
+        toast('role deleted', 'success');
+        location.hash = orgSlug ? '#/orgs/' + encodeURIComponent(orgSlug) : '#/roles';
+      } catch (err) {
+        toast(err.message, 'error');
+        if (button) button.disabled = false;
+      }
+    });
   }
 
   function openAddMember(org) {
@@ -2800,12 +2921,22 @@
     const params = {};
     if (status !== 'all') params.status = status;
     if (query.q) params.q = query.q;
-    const roles = await API.roles(params) || [];
+    const [roles, mine] = await Promise.all([
+      API.roles(params),
+      API.roles({ applied: true }),
+    ]);
+    const listings = roles || [];
+    const applications = mine || [];
 
     root.innerHTML =
       '<div class="container">' +
       '<div class="spread"><h1 class="page-title">roles</h1></div>' +
       '<p class="sub">Open roles are accepting applications. Apply once, or share a listing in a message.</p>' +
+      '<section class="section"><h2 class="section-title">your applications</h2>' +
+      (applications.length
+        ? '<div class="card-grid">' + applications.map(roleCard).join('') + '</div>'
+        : '<p class="muted">You have not applied to a role yet.</p>') +
+      '</section>' +
       '<div class="row mt">' +
       '<a class="btn btn-sm' + (status === 'open' ? ' btn-primary' : '') + '" href="#/roles?status=open">accepting applications</a>' +
       '<a class="btn btn-sm' + (status === 'closed' ? ' btn-primary' : '') + '" href="#/roles?status=closed">closed</a>' +
@@ -2815,7 +2946,7 @@
       '<input class="search-input" name="q" type="search" aria-label="Search roles" placeholder="search roles or organizations" value="' + escapeHtml(query.q || '') + '">' +
       '<button class="btn btn-primary" type="submit">' + ICON.search + '</button></form>' +
       '<div class="card-grid section">' +
-      (roles.length ? roles.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
+      (listings.length ? listings.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
       '</div>' +
       '</div>';
 
@@ -2833,23 +2964,42 @@
   async function viewRole(root, roleid) {
     const role = await API.role(roleid);
     const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
+    const decision = role.decision || (role.applied ? 'pending' : '');
     let action = '';
     if (role.canManage) {
-      action = role.status === 'open'
-        ? '<button class="btn btn-sm" type="button" id="close-role">close role</button>'
-        : '<button class="btn btn-sm" type="button" id="open-role">reopen role</button>';
-    } else if (role.status === 'open') {
-      action = role.applied
-        ? '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>'
-        : '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">apply</button>';
+      action = '<button class="btn btn-sm" type="button" id="edit-role">edit</button>' +
+        '<button class="btn btn-sm btn-ghost" type="button" id="delete-role">delete</button>' +
+        (role.status === 'open'
+          ? '<button class="btn btn-sm" type="button" id="close-role">close role</button>'
+          : '<button class="btn btn-sm" type="button" id="open-role">reopen role</button>');
+    } else if (role.status === 'open' && (!role.applied || decision === 'rejected')) {
+      action = '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">' +
+        (decision === 'rejected' ? 'apply again' : 'apply') + '</button>';
+    } else if (role.applied && decision === 'pending') {
+      action = '<button class="btn btn-sm" type="button" data-withdraw="' + role.roleid + '">withdraw</button>';
+    }
+    let appliedNote = '';
+    if (role.applied && !role.canManage) {
+      const invite = role.invitation;
+      if (decision === 'accepted' && invite && invite.status === 'pending') {
+        appliedNote = '<p class="muted">You were accepted. Join ' + escapeHtml(role.organization.name) + ' or decline the invitation.</p>' +
+          '<div class="row">' +
+          '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">join organization</button>' +
+          '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">decline</button></div>';
+      } else if (decision === 'accepted' && invite && invite.status === 'declined') {
+        appliedNote = '<p class="muted">You were accepted and declined the invitation to join.</p>';
+      } else if (decision === 'accepted') {
+        appliedNote = '<p class="muted">You were accepted.</p>';
+      } else if (decision === 'rejected') {
+        appliedNote = '<p class="muted">Your application was not accepted.</p>';
+      } else {
+        appliedNote = '<p class="muted">You applied ' + escapeHtml(timeAgo(role.appliedAt) || 'just now') + '. The organization has not decided yet.</p>';
+      }
     }
     const applicants = role.canManage
       ? '<section class="section"><h2 class="section-title">applicants</h2>' +
         ((role.applicants || []).length
-          ? '<div class="stack">' + role.applicants.map((person) =>
-            '<div class="panel listing-card"><a href="#/dev/' + encodeURIComponent(person.login) + '"><b>' +
-            escapeHtml(person.displayName) + '</b> <span class="faint">@' + escapeHtml(person.login) + '</span></a>' +
-            '<div class="faint">' + escapeHtml(timeAgo(person.appliedAt)) + '</div></div>').join('') + '</div>'
+          ? '<div class="stack">' + role.applicants.map(applicantLine).join('') + '</div>'
           : '<p class="muted">No applications yet.</p>') + '</section>'
       : '';
 
@@ -2861,6 +3011,7 @@
       '<p><a href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a></p>' +
       (role.description ? '<p class="listing-copy">' + escapeHtml(role.description) + '</p>' : '') +
       (skills ? '<div class="chips mt">' + skills + '</div>' : '') +
+      appliedNote +
       '<div class="row mt"><span class="faint">' + role.applicantCount +
       (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' + action +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' +
@@ -2869,9 +3020,99 @@
 
     const closeBtn = $('#close-role');
     const openBtn = $('#open-role');
+    const editRoleBtn = $('#edit-role');
+    const deleteRoleBtn = $('#delete-role');
     if (closeBtn) closeBtn.addEventListener('click', () => setRoleStatus(role, 'closed'));
     if (openBtn) openBtn.addEventListener('click', () => setRoleStatus(role, 'open'));
+    if (editRoleBtn) editRoleBtn.addEventListener('click', () => openEditRole(role).catch((err) => toast(err.message, 'error')));
+    if (deleteRoleBtn) deleteRoleBtn.addEventListener('click', () => confirmDeleteRole(role, role.organization && role.organization.slug));
     bindRoleActions(root);
+    bindApplicantActions(root);
+    bindInvitations(root);
+    wireDevActions(root);
+  }
+
+  function applicantLine(person) {
+    const decision = person.decision || 'pending';
+    const decide = decision === 'pending'
+      ? '<button class="btn btn-sm btn-primary" type="button" data-decide="accepted" data-roleid="' + person.roleid +
+        '" data-userid="' + person.userid + '" data-applicant-name="' + escapeHtml(person.displayName) + '">accept</button>' +
+        '<button class="btn btn-sm" type="button" data-decide="rejected" data-roleid="' + person.roleid +
+        '" data-userid="' + person.userid + '" data-applicant-name="' + escapeHtml(person.displayName) + '">reject</button>'
+      : '<span class="badge' + (decision === 'accepted' ? ' accent' : '') + '">' + escapeHtml(decision) + '</span>';
+    return '<div class="panel listing-card spread"><div><a href="#/dev/' + encodeURIComponent(person.login) + '"><b>' +
+      escapeHtml(person.displayName) + '</b> <span class="faint">@' + escapeHtml(person.login) + '</span></a>' +
+      '<div class="faint">applied ' + escapeHtml(timeAgo(person.appliedAt) || 'just now') + '</div></div>' +
+      '<div class="row">' + decide +
+      '<button class="btn btn-sm" type="button" data-message="' + person.userid + '">' + ICON.mail + ' message</button></div></div>';
+  }
+
+  function bindApplicantActions(root) {
+    $$('[data-decide]', root).forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', () => {
+        const decision = btn.dataset.decide;
+        const name = btn.dataset.applicantName || 'this applicant';
+        messageDialog(
+          decision === 'accepted' ? 'accept application' : 'reject application',
+          decision === 'accepted'
+            ? 'Accept ' + name + '? They get a message and an invitation to join the organization or decline.'
+            : 'Reject ' + name + '\'s application?',
+          '<button class="btn" type="button" data-close>cancel</button>' +
+          '<button class="btn btn-primary" type="button" id="confirm-decision">' +
+          (decision === 'accepted' ? 'accept' : 'reject') + '</button>');
+        $('#confirm-decision').addEventListener('click', async () => {
+          const confirm = $('#confirm-decision');
+          confirm.disabled = true;
+          try {
+            await API.decideApplication(btn.dataset.roleid, btn.dataset.userid, decision);
+            closeModal();
+            toast(decision === 'accepted' ? 'application accepted' : 'application rejected', 'success');
+            await render();
+          } catch (err) {
+            toast(err.message, 'error');
+            if (confirm) confirm.disabled = false;
+          }
+        });
+      });
+    });
+  }
+
+  function invitationCard(invite) {
+    const role = invite.role && invite.role.name ? ' for ' + escapeHtml(invite.role.name) : '';
+    return '<div class="panel listing-card spread"><div><a href="#/orgs/' + encodeURIComponent(invite.organization.slug) + '"><b>' +
+      escapeHtml(invite.organization.name) + '</b></a>' +
+      '<div class="faint">invitation to join' + role + '</div></div>' +
+      '<div class="row">' +
+      '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">join</button>' +
+      '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">decline</button></div></div>';
+  }
+
+  function bindInvitations(root) {
+    $$('[data-join-invite]', root).forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', () => respondToInvitation(btn, true));
+    });
+    $$('[data-decline-invite]', root).forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', () => respondToInvitation(btn, false));
+    });
+  }
+
+  async function respondToInvitation(btn, accept) {
+    btn.disabled = true;
+    try {
+      if (accept) await API.acceptInvitation(btn.dataset.joinInvite);
+      else await API.declineInvitation(btn.dataset.declineInvite);
+      toast(accept ? 'you joined the organization' : 'invitation declined', 'success');
+      await render();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+    }
   }
 
   async function setRoleStatus(role, status) {
@@ -2897,9 +3138,10 @@
     if (!requireGate(root)) return;
     if (slug) return viewOrganization(root, slug);
 
-    const [mine, all] = await Promise.all([
+    const [mine, all, invitations] = await Promise.all([
       API.organizations({ mine: true }),
       API.organizations(),
+      API.invitations().catch(() => []),
     ]);
     const mineIds = new Set((mine || []).map((org) => org.organizationid));
     const others = (all || []).filter((org) => !mineIds.has(org.organizationid));
@@ -2909,6 +3151,10 @@
       '<div class="spread"><h1 class="page-title">organizations</h1>' +
       '<button class="btn btn-primary" type="button" id="create-org">' + ICON.plus + ' new organization</button></div>' +
       '<p class="sub">An organization uses your existing login. You create it, and you are the owner.</p>' +
+      ((invitations || []).length
+        ? '<section class="section"><h2 class="section-title">invitations</h2><div class="stack">' +
+          invitations.map(invitationCard).join('') + '</div></section>'
+        : '') +
       '<section class="section"><h2 class="section-title">yours</h2><div class="card-grid">' +
       ((mine || []).length ? mine.map(orgCard).join('') : '<div class="empty"><p>You have not created or joined an organization yet.</p></div>') +
       '</div></section>' +
@@ -2918,6 +3164,7 @@
       '</div>';
 
     $('#create-org').addEventListener('click', openCreateOrganization);
+    bindInvitations(root);
   }
 
   async function viewOrganization(root, slug) {
@@ -2933,17 +3180,29 @@
           escapeHtml(person.displayName) + '">remove</button>'
         : '') +
       '</div></div>').join('');
-    const roles = (org.roles || []).map((role) =>
-      '<div class="spread panel listing-card"><div><a href="#/roles/' + role.roleid + '"><b>' + escapeHtml(role.name) +
-      '</b></a><div class="faint">' + escapeHtml(role.statusLabel) + ' · ' + role.applicantCount + ' applicants</div></div>' +
-      '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.status) + '</span></div>').join('');
+    const roles = (org.roles || []).map((role) => {
+      const people = (role.applicants || []).map(applicantLine).join('');
+      return '<div class="panel listing-card"><div class="spread"><div><a href="#/roles/' + role.roleid + '"><b>' +
+        escapeHtml(role.name) + '</b></a><div class="faint">' + escapeHtml(role.statusLabel) + ' · ' +
+        '<a href="#/roles/' + role.roleid + '">' + role.applicantCount +
+        (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</a></div></div>' +
+        '<div class="row"><span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.status) + '</span>' +
+        (isMember
+          ? '<button class="btn btn-sm" type="button" data-edit-role="' + role.roleid + '">edit</button>' +
+            '<button class="btn btn-sm btn-ghost" type="button" data-delete-role="' + role.roleid + '" data-role-name="' +
+            escapeHtml(role.name) + '">delete</button>'
+          : '') +
+        '</div></div>' +
+        (people ? '<div class="stack">' + people + '</div>' : '') + '</div>';
+    }).join('');
 
     root.innerHTML =
       '<div class="container">' +
       '<a class="btn btn-sm btn-ghost" href="#/orgs">' + ICON.back + ' organizations</a>' +
       '<div class="spread mt"><h1 class="page-title">' + escapeHtml(org.name) + '</h1>' +
       '<div class="row">' +
-      (isOwner ? '<button class="btn btn-sm" type="button" id="edit-org">edit</button>' : '') +
+      (isOwner ? '<button class="btn btn-sm" type="button" id="edit-org">edit</button>' +
+        '<button class="btn btn-sm btn-ghost" type="button" id="delete-org">delete</button>' : '') +
       (isMember ? '<button class="btn btn-sm btn-primary" type="button" id="post-role">' + ICON.plus + ' post role</button>' : '') +
       '<button class="btn btn-sm" type="button" data-share-org="' + org.organizationid + '" data-share-label="' +
       escapeHtml(org.name) + '">' + ICON.share + ' share</button></div></div>' +
@@ -2960,6 +3219,7 @@
 
     if (isOwner) {
       $('#edit-org').addEventListener('click', () => openEditOrganization(org));
+      $('#delete-org').addEventListener('click', () => confirmDeleteOrganization(org));
       $('#add-member').addEventListener('click', () => openAddMember(org));
       $$('[data-remove-member]', root).forEach((btn) => btn.addEventListener('click', () => {
         messageDialog('remove member', 'Remove ' + btn.dataset.memberName + ' from ' + org.name + '?',
@@ -2979,7 +3239,16 @@
     }
     const post = $('#post-role');
     if (post) post.addEventListener('click', () => openCreateRole(org));
+    $$('[data-edit-role]', root).forEach((btn) => btn.addEventListener('click', () => {
+      const listed = (org.roles || []).find((role) => String(role.roleid) === btn.dataset.editRole);
+      openEditRole(listed || { roleid: btn.dataset.editRole }).catch((err) => toast(err.message, 'error'));
+    }));
+    $$('[data-delete-role]', root).forEach((btn) => btn.addEventListener('click', () => {
+      confirmDeleteRole({ roleid: btn.dataset.deleteRole, name: btn.dataset.roleName }, org.slug);
+    }));
+    bindApplicantActions(root);
     bindRoleActions(root);
+    wireDevActions(root);
   }
 
   /* ---------------- Theme ---------------- */

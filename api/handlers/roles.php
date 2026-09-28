@@ -10,6 +10,7 @@ $db       = getDB();
 $segments = pathSegments();
 $id       = $segments[1] ?? null;
 $sub      = $segments[2] ?? null;
+$subId    = $segments[3] ?? null;
 $userid   = requireAuth();
 
 if ($id === null) {
@@ -32,7 +33,10 @@ if ($sub === null) {
     if (requestMethod() === 'PUT') {
         updateRole($db, $roleid, $userid);
     }
-    header('Allow: GET, PUT');
+    if (requestMethod() === 'DELETE') {
+        deleteRole($db, $roleid, $userid);
+    }
+    header('Allow: GET, PUT, DELETE');
     respond(405, ['error' => 'Method not allowed']);
 }
 
@@ -48,8 +52,12 @@ if ($sub === 'apply') {
 }
 
 if ($sub === 'applicants') {
-    requireMethod('GET');
-    listApplicants($db, $roleid, $userid);
+    if ($subId === null) {
+        requireMethod('GET');
+        listApplicants($db, $roleid, $userid);
+    }
+    requireMethod('PUT');
+    decideApplication($db, $roleid, requireId($subId, 'user id'), $userid);
 }
 
 respond(404, ['error' => 'Not found']);
@@ -63,8 +71,18 @@ function listRoles($db, $userid) {
         respond(400, ['error' => 'Status must be open or closed']);
     }
 
-    $sql = roleSelectSql() . ' WHERE 1 = 1';
+    $ready = decisionReady($db);
+    $sql = roleSelectSql($ready) . ' WHERE 1 = 1';
     $params = [':me' => $userid, ':me_member' => $userid];
+    if ($ready) {
+        $params[':me_invite'] = $userid;
+    }
+    if (isset($_GET['applied']) && $_GET['applied'] === '1') {
+        $sql .= ' AND EXISTS (
+                    SELECT 1 FROM applications applied_filter
+                    WHERE applied_filter.roleid = r.roleid AND applied_filter.userid = :applied_user)';
+        $params[':applied_user'] = $userid;
+    }
     if ($status !== '') {
         $sql .= ' AND r.status = :status';
         $params[':status'] = $status;
@@ -93,7 +111,7 @@ function listRoles($db, $userid) {
         roleFail($e, 'Could not load roles');
     }
 
-    respond(200, ['data' => shapeRoles($db, $rows)]);
+    respond(200, ['data' => shapeRoles($db, $rows, $userid)]);
 }
 
 function createRole($db, $userid) {
@@ -136,7 +154,7 @@ function createRole($db, $userid) {
 
 function getRole($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
-    $shaped = shapeRoles($db, [$row])[0];
+    $shaped = shapeRoles($db, [$row], $userid)[0];
     if ($shaped['canManage']) {
         $shaped['applicants'] = applicantRows($db, $roleid);
     }
@@ -201,6 +219,20 @@ function updateRole($db, $roleid, $userid) {
     respond(200, ['data' => ['roleid' => $roleid, 'status' => $status]]);
 }
 
+function deleteRole($db, $roleid, $userid) {
+    $row = fetchRole($db, $roleid, $userid);
+    if (!(int) $row['is_member']) {
+        respond(403, ['error' => 'Only organization members can delete this role']);
+    }
+    try {
+        $stmt = $db->prepare('DELETE FROM roles WHERE roleid = :id');
+        $stmt->execute([':id' => $roleid]);
+    } catch (PDOException $e) {
+        roleFail($e, 'Could not delete role');
+    }
+    respond(200, ['data' => ['message' => 'Role deleted']]);
+}
+
 function applyToRole($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     if ($row['status'] !== 'open') {
@@ -210,11 +242,30 @@ function applyToRole($db, $roleid, $userid) {
         respond(400, ['error' => 'Organization members cannot apply to their own role']);
     }
     if ((int) $row['applied']) {
-        respond(200, ['data' => ['roleid' => $roleid, 'applied' => true]]);
+        if (decisionReady($db) && ($row['application_decision'] ?? '') === 'rejected') {
+            $reset = $db->prepare(
+                'UPDATE applications
+                 SET decision = \'pending\', decided_at = NULL, decided_by = NULL
+                 WHERE roleid = :roleid AND userid = :userid AND decision = \'rejected\''
+            );
+            $reset->execute([':roleid' => $roleid, ':userid' => $userid]);
+            respond(200, ['data' => ['roleid' => $roleid, 'applied' => true, 'decision' => 'pending']]);
+        }
+        respond(200, ['data' => [
+            'roleid'   => $roleid,
+            'applied'  => true,
+            'decision' => $row['application_decision'] ?? 'pending',
+        ]]);
     }
 
     try {
-        $stmt = $db->prepare('INSERT INTO applications (roleid, userid) VALUES (:roleid, :userid)');
+        if (decisionReady($db)) {
+            $stmt = $db->prepare(
+                'INSERT INTO applications (roleid, userid, decision) VALUES (:roleid, :userid, \'pending\')'
+            );
+        } else {
+            $stmt = $db->prepare('INSERT INTO applications (roleid, userid) VALUES (:roleid, :userid)');
+        }
         $stmt->execute([':roleid' => $roleid, ':userid' => $userid]);
     } catch (PDOException $e) {
         if ($e->getCode() === '23000') {
@@ -227,8 +278,12 @@ function applyToRole($db, $roleid, $userid) {
 }
 
 function withdrawApplication($db, $roleid, $userid) {
-    fetchRole($db, $roleid, $userid);
-    $stmt = $db->prepare('DELETE FROM applications WHERE roleid = :roleid AND userid = :userid');
+    $row = fetchRole($db, $roleid, $userid);
+    if (decisionReady($db) && (int) $row['applied'] && ($row['application_decision'] ?? 'pending') !== 'pending') {
+        respond(400, ['error' => 'This application has already been decided']);
+    }
+    $pending = decisionReady($db) ? ' AND decision = \'pending\'' : '';
+    $stmt = $db->prepare('DELETE FROM applications WHERE roleid = :roleid AND userid = :userid' . $pending);
     $stmt->execute([':roleid' => $roleid, ':userid' => $userid]);
     respond(200, ['data' => ['roleid' => $roleid, 'applied' => false]]);
 }
@@ -241,23 +296,42 @@ function listApplicants($db, $roleid, $userid) {
     respond(200, ['data' => applicantRows($db, $roleid)]);
 }
 
-function roleSelectSql() {
-    return 'SELECT r.roleid, r.organizationid, r.name, r.description, r.status, r.created_at, r.closed_at,
+function roleSelectSql($withDecision = true) {
+    $decision = $withDecision
+        ? 'applied_row.decision AS application_decision,
+                   invite_row.invitationid AS invitationid,
+                   invite_row.status AS invitation_status,'
+        : '';
+    $invite = $withDecision
+        ? ' LEFT JOIN organization_invitations invite_row
+              ON invite_row.organizationid = r.organizationid AND invite_row.userid = :me_invite'
+        : '';
+    return 'SELECT r.roleid, r.organizationid, r.name, r.description, r.status, r.created_by,
+                   r.created_at, r.closed_at,
                    o.name AS org_name, o.slug AS org_slug,
                    (SELECT COUNT(*) FROM applications a WHERE a.roleid = r.roleid) AS applicant_count,
-                   EXISTS(SELECT 1 FROM applications mine
-                          WHERE mine.roleid = r.roleid AND mine.userid = :me) AS applied,
-                   EXISTS(SELECT 1 FROM organization_members mem
-                          WHERE mem.organizationid = r.organizationid AND mem.userid = :me_member) AS is_member
+                   applied_row.created_at AS applied_at,
+                   ' . $decision . '
+                   applied_row.userid IS NOT NULL AS applied,
+                   member_row.userid IS NOT NULL AS is_member
             FROM roles r
-            JOIN organizations o ON o.organizationid = r.organizationid';
+            JOIN organizations o ON o.organizationid = r.organizationid
+            LEFT JOIN applications applied_row
+              ON applied_row.roleid = r.roleid AND applied_row.userid = :me
+            LEFT JOIN organization_members member_row
+              ON member_row.organizationid = r.organizationid AND member_row.userid = :me_member'
+            . $invite;
 }
 
 function fetchRole($db, $roleid, $userid) {
     try {
-        $stmt = $db->prepare(roleSelectSql() . ' WHERE r.roleid = :id LIMIT 1');
+        $ready = decisionReady($db);
+        $stmt = $db->prepare(roleSelectSql($ready) . ' WHERE r.roleid = :id LIMIT 1');
         $stmt->bindValue(':me', $userid, PDO::PARAM_INT);
         $stmt->bindValue(':me_member', $userid, PDO::PARAM_INT);
+        if ($ready) {
+            $stmt->bindValue(':me_invite', $userid, PDO::PARAM_INT);
+        }
         $stmt->bindValue(':id', $roleid, PDO::PARAM_INT);
         $stmt->execute();
         $row = $stmt->fetch();
@@ -270,7 +344,7 @@ function fetchRole($db, $roleid, $userid) {
     return $row;
 }
 
-function shapeRoles($db, $rows) {
+function shapeRoles($db, $rows, $userid = 0) {
     if (!$rows) {
         return [];
     }
@@ -292,7 +366,13 @@ function shapeRoles($db, $rows) {
             'closedAt'       => $row['closed_at'],
             'applicantCount' => (int) $row['applicant_count'],
             'applied'        => (int) $row['applied'] === 1,
-            'canManage'      => (int) $row['is_member'] === 1,
+            'appliedAt'      => $row['applied_at'],
+            'decision'       => $row['application_decision'] ?? null,
+            'invitation'     => !empty($row['invitationid']) ? [
+                'invitationid' => (int) $row['invitationid'],
+                'status'       => $row['invitation_status'],
+            ] : null,
+            'canManage'      => (int) $row['is_member'] === 1 || (int) $row['created_by'] === (int) $userid,
             'organization'   => [
                 'organizationid' => (int) $row['organizationid'],
                 'name'           => $row['org_name'],
@@ -325,8 +405,10 @@ function skillsForRoles($db, $roleIds) {
 }
 
 function applicantRows($db, $roleid) {
+    $decision = decisionReady($db) ? 'a.decision' : '\'pending\' AS decision';
     $stmt = $db->prepare(
-        'SELECT u.userid, u.loginuid, u.displayname, u.firstname, u.lastname, a.created_at
+        'SELECT u.userid, u.loginuid, u.displayname, u.firstname, u.lastname,
+                a.roleid, ' . $decision . ', a.created_at
          FROM applications a
          JOIN users u ON u.userid = a.userid
          WHERE a.roleid = :id
@@ -337,8 +419,10 @@ function applicantRows($db, $roleid) {
     foreach ($stmt->fetchAll() as $row) {
         $people[] = [
             'userid'      => (int) $row['userid'],
+            'roleid'      => (int) $row['roleid'],
             'login'       => $row['loginuid'],
             'displayName' => $row['displayname'] ?: trim($row['firstname'] . ' ' . $row['lastname']),
+            'decision'    => $row['decision'] ?: 'pending',
             'appliedAt'   => $row['created_at'],
         ];
     }
@@ -415,8 +499,171 @@ function requireMember($db, $organizationid, $userid) {
     }
 }
 
+function decideApplication($db, $roleid, $applicantId, $userid) {
+    if (!decisionReady($db)) {
+        respond(503, ['error' => 'Application decisions are not installed yet. Run migrate_applications.sql on the database.']);
+    }
+    $role = fetchRole($db, $roleid, $userid);
+    if (!(int) $role['is_member']) {
+        respond(403, ['error' => 'Only organization members can decide applications']);
+    }
+    $body = getRequestBody();
+    $decision = isset($body['decision']) ? clean($body['decision']) : '';
+    if ($decision !== 'accepted' && $decision !== 'rejected') {
+        respond(400, ['error' => 'Decision must be accepted or rejected']);
+    }
+
+    $lookup = $db->prepare(
+        'SELECT decision FROM applications WHERE roleid = :roleid AND userid = :userid LIMIT 1'
+    );
+    $lookup->execute([':roleid' => $roleid, ':userid' => $applicantId]);
+    $application = $lookup->fetch();
+    if (!$application) {
+        respond(404, ['error' => 'Application not found']);
+    }
+
+    $organizationid = (int) $role['organizationid'];
+    try {
+        $db->beginTransaction();
+        $update = $db->prepare(
+            'UPDATE applications
+             SET decision = :decision, decided_at = NOW(), decided_by = :decided_by
+             WHERE roleid = :roleid AND userid = :userid AND decision <> :guard'
+        );
+        $update->execute([
+            ':decision'   => $decision,
+            ':guard'      => $decision,
+            ':decided_by' => $userid,
+            ':roleid'     => $roleid,
+            ':userid'     => $applicantId,
+        ]);
+        $changed = $update->rowCount() > 0;
+        $alreadyMember = isOrgMember($db, $organizationid, $applicantId);
+
+        if ($decision === 'accepted' && !$alreadyMember) {
+            $invite = $db->prepare(
+                'INSERT INTO organization_invitations
+                   (organizationid, userid, roleid, invited_by, status, responded_at)
+                 VALUES (:org, :userid, :roleid, :invited_by, \'pending\', NULL)
+                 ON DUPLICATE KEY UPDATE
+                   roleid = IF(status = \'accepted\', roleid, VALUES(roleid)),
+                   invited_by = IF(status = \'accepted\', invited_by, VALUES(invited_by)),
+                   status = IF(status = \'accepted\', status, \'pending\'),
+                   responded_at = IF(status = \'accepted\', responded_at, NULL)'
+            );
+            $invite->execute([
+                ':org'        => $organizationid,
+                ':userid'     => $applicantId,
+                ':roleid'     => $roleid,
+                ':invited_by' => $userid,
+            ]);
+        }
+
+        if ($decision === 'rejected') {
+            $other = $db->prepare(
+                'SELECT 1
+                 FROM applications a
+                 JOIN roles r ON r.roleid = a.roleid
+                 WHERE r.organizationid = :org AND a.userid = :userid
+                   AND a.decision = \'accepted\' AND a.roleid <> :roleid
+                 LIMIT 1'
+            );
+            $other->execute([
+                ':org'    => $organizationid,
+                ':userid' => $applicantId,
+                ':roleid' => $roleid,
+            ]);
+            if (!$other->fetch()) {
+                $clear = $db->prepare(
+                    'DELETE FROM organization_invitations
+                     WHERE organizationid = :org AND userid = :userid AND status = \'pending\''
+                );
+                $clear->execute([':org' => $organizationid, ':userid' => $applicantId]);
+            }
+        }
+
+        if ($changed && $decision === 'accepted') {
+            $text = $role['org_name'] . ' accepted your application for ' . $role['name'] . '.';
+            if (!$alreadyMember) {
+                $text .= ' Join the organization or decline the invitation from Organizations.';
+            }
+            sendDirectNotice($db, $userid, $applicantId, $text, $organizationid);
+        }
+        $db->commit();
+    } catch (PDOException $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        roleFail($e, 'Could not update application');
+    }
+
+    respond(200, ['data' => [
+        'roleid'   => $roleid,
+        'userid'   => $applicantId,
+        'decision' => $decision,
+    ]]);
+}
+
+function isOrgMember($db, $organizationid, $userid) {
+    $stmt = $db->prepare(
+        'SELECT 1 FROM organization_members WHERE organizationid = :org AND userid = :userid LIMIT 1'
+    );
+    $stmt->execute([':org' => $organizationid, ':userid' => $userid]);
+    return (bool) $stmt->fetch();
+}
+
+function sendDirectNotice($db, $fromId, $toId, $body, $organizationid) {
+    if ($fromId === $toId) {
+        return;
+    }
+    $find = $db->prepare(
+        'SELECT cp1.conversationid
+         FROM conversation_participants cp1
+         JOIN conversation_participants cp2
+           ON cp2.conversationid = cp1.conversationid AND cp2.userid = :recipient
+         WHERE cp1.userid = :userid
+           AND (SELECT COUNT(*) FROM conversation_participants cp3
+                 WHERE cp3.conversationid = cp1.conversationid) = 2
+         LIMIT 1'
+    );
+    $find->execute([':userid' => $fromId, ':recipient' => $toId]);
+    $existing = $find->fetch();
+    if ($existing) {
+        $conversationid = (int) $existing['conversationid'];
+    } else {
+        $ins = $db->prepare('INSERT INTO conversations (created_by) VALUES (:me)');
+        $ins->execute([':me' => $fromId]);
+        $conversationid = (int) $db->lastInsertId();
+        $part = $db->prepare(
+            'INSERT INTO conversation_participants (conversationid, userid) VALUES (:cid, :userid)'
+        );
+        $part->execute([':cid' => $conversationid, ':userid' => $fromId]);
+        $part->execute([':cid' => $conversationid, ':userid' => $toId]);
+    }
+
+    $message = $db->prepare(
+        'INSERT INTO messages (conversationid, sender_userid, body, organizationid)
+         VALUES (:cid, :userid, :body, :organizationid)'
+    );
+    $message->execute([
+        ':cid'            => $conversationid,
+        ':userid'         => $fromId,
+        ':body'           => $body,
+        ':organizationid' => $organizationid,
+    ]);
+    $touch = $db->prepare('UPDATE conversations SET last_message_at = NOW() WHERE conversationid = :cid');
+    $touch->execute([':cid' => $conversationid]);
+}
+
 function roleFail($e, $fallback) {
-    $missing = $e->getCode() === '42S02' || strpos($e->getMessage(), 'Base table or view not found') !== false;
+    $detail = $e->getMessage();
+    $missing = $e->getCode() === '42S02' || strpos($detail, 'Base table or view not found') !== false;
+    $needsDecision = strpos($detail, 'organization_invitations') !== false
+        || strpos($detail, 'decision') !== false
+        || strpos($detail, 'decided_by') !== false;
+    if ($needsDecision) {
+        respond(503, ['error' => 'Application decisions are not installed yet. Run migrate_applications.sql on the database.']);
+    }
     if ($missing) {
         respond(503, ['error' => 'Organization tables are not installed yet. Run migrate.sql on the database.']);
     }
