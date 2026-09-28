@@ -147,7 +147,7 @@ svg.spark { width: 76px; height: 18px; }
   text-transform: uppercase; color: var(--faint); margin: 0 0 12px;
   display: inline-flex; align-items: center; gap: 7px;
 }
-.page-title { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin: 0; display: flex; align-items: center; gap: 10px; }
+.page-title { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin: 0; line-height: 1.4; display: flex; align-items: center; gap: 10px; }
 .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
 .stack { display: grid; gap: 14px; }
 .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
