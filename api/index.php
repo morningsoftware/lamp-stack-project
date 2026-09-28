@@ -52,6 +52,10 @@ switch ($resource) {
         require __DIR__ . '/handlers/github.php';
         break;
 
+    case 'oauth':
+        require __DIR__ . '/handlers/oauth.php';
+        break;
+
     case 'conversations':
     case 'messages':
         require __DIR__ . '/handlers/conversations.php';

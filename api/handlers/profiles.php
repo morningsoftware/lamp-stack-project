@@ -119,8 +119,8 @@ function listProfiles($db) {
                    gp.followers, gp.following, gp.public_repos,
                    (SELECT COALESCE(SUM(gr.stars), 0) FROM github_repositories gr
                      WHERE gr.githubid = gp.githubid) AS total_stars
-            FROM users u
-            LEFT JOIN github_profiles gp ON gp.userid = u.userid';
+             FROM users u
+             LEFT JOIN github_profiles gp ON gp.userid = u.userid AND gp.github_id IS NOT NULL';
 
     $where  = [];
     $params = [];
@@ -212,7 +212,7 @@ function listProfiles($db) {
 
     $countStmt = $db->prepare(
         'SELECT COUNT(*) FROM users u
-         LEFT JOIN github_profiles gp ON gp.userid = u.userid' . $whereSql
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid AND gp.github_id IS NOT NULL' . $whereSql
     );
     foreach ($params as $key => $value) {
         $countStmt->bindValue($key, $value);
@@ -406,7 +406,7 @@ function suggestDevelopers($db) {
                 (SELECT COALESCE(SUM(gr.stars), 0) FROM github_repositories gr
                   WHERE gr.githubid = gp.githubid) AS total_stars
          FROM users u
-         LEFT JOIN github_profiles gp ON gp.userid = u.userid
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid AND gp.github_id IS NOT NULL
          WHERE u.userid <> :me AND u.isadmin = 0'
     );
     $stmt->execute([':me' => $me]);
@@ -645,7 +645,7 @@ function getProfile($db, $identifier) {
                 gp.profile_url AS github_profile_url, gp.followers, gp.following,
                 gp.public_repos, gp.public_gists, gp.last_synced
          FROM users u
-         LEFT JOIN github_profiles gp ON gp.userid = u.userid
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid AND gp.github_id IS NOT NULL
          WHERE ' . $where
     );
     $stmt->execute([':identifier' => $numeric ? (int) $identifier : (string) $identifier]);

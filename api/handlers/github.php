@@ -87,7 +87,7 @@ function getGithub($db, $userid) {
         'SELECT githubid, username, avatar_url, profile_url, bio, followers, following,
                 public_repos, public_gists, last_synced
          FROM github_profiles
-         WHERE userid = :userid'
+         WHERE userid = :userid AND github_id IS NOT NULL'
     );
     $stmt->execute([':userid' => $userid]);
     $profile = $stmt->fetch();

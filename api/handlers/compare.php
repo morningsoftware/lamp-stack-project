@@ -110,7 +110,7 @@ function compareUser($db, $userid) {
                 gp.githubid, gp.username, gp.avatar_url AS github_avatar_url,
                 gp.followers, gp.following, gp.public_repos
          FROM users u
-         LEFT JOIN github_profiles gp ON gp.userid = u.userid
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid AND gp.github_id IS NOT NULL
          WHERE u.userid = :userid AND u.isadmin = 0'
     );
     $stmt->execute([':userid' => $userid]);

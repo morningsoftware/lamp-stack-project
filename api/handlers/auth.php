@@ -6,7 +6,6 @@
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/helpers.php';
-require_once __DIR__ . '/../config/github.php';
 
 $db       = getDB();
 $segments = pathSegments();
@@ -52,20 +51,18 @@ switch ($action) {
 }
 
 /**
- * Creates a user account linked to a GitHub account, then returns a
- * session token. Profile data lives on the users row; the contacts
- * table is the user's address book and is not touched here.
+ * Creates a user account (email + password), then returns a session
+ * token. GitHub is linked separately via OAuth after signup.
  *
  * @param PDO $db
  */
 function registerUser($db) {
     $body = getRequestBody();
-    requireFields($body, ['login', 'email', 'password', 'githubUsername']);
+    requireFields($body, ['login', 'email', 'password']);
 
     $login    = clean($body['login']);
     $email    = requireEmail($body['email']);
     $password = (string) $body['password'];
-    $github   = clean($body['githubUsername']);
 
     if (strlen($login) < 3 || strlen($login) > 50) {
         respond(400, ['error' => 'Login must be between 3 and 50 characters']);
@@ -73,19 +70,6 @@ function registerUser($db) {
     if (strlen($password) < 8) {
         respond(400, ['error' => 'Password must be at least 8 characters']);
     }
-    if (!githubUsernameValid($github)) {
-        respond(400, ['error' => 'A valid GitHub username is required']);
-    }
-
-    // GitHub is required at signup, so verify it before creating the account.
-    $lookup = githubFetch("https://api.github.com/users/{$github}");
-    if ($lookup['status'] === 404) {
-        respond(400, ['error' => 'GitHub user not found']);
-    }
-    if ($lookup['status'] < 200 || $lookup['status'] >= 300 || !isset($lookup['data']['login'])) {
-        respond(503, ['error' => 'Could not verify GitHub account, please try again']);
-    }
-    $ghProfile = $lookup['data'];
 
     $firstName = isset($body['firstName']) ? clean($body['firstName']) : '';
     $lastName  = isset($body['lastName']) ? clean($body['lastName']) : '';
@@ -114,12 +98,6 @@ function registerUser($db) {
         ]);
         $userid = (int) $db->lastInsertId();
 
-        // Link the GitHub account immediately so it cannot be claimed twice.
-        $githubStub = $db->prepare(
-            'INSERT INTO github_profiles (userid, username) VALUES (:userid, :username)'
-        );
-        $githubStub->execute([':userid' => $userid, ':username' => $ghProfile['login']]);
-
         $token = issueToken($db, $userid);
         $db->commit();
     } catch (PDOException $e) {
@@ -127,27 +105,17 @@ function registerUser($db) {
             $db->rollBack();
         }
         if ($e->getCode() === '23000') {
-            respond(409, ['error' => 'Login, email, or GitHub account is already registered']);
+            respond(409, ['error' => 'Login or email is already registered']);
         }
         error_log('Registration error: ' . $e->getMessage());
         respond(500, ['error' => 'Registration failed']);
     }
 
-    // Best-effort initial sync; a failure does not block account creation.
-    $githubSynced = false;
-    try {
-        syncGithubForUser($db, $userid, $ghProfile['login'], $ghProfile);
-        $githubSynced = true;
-    } catch (RuntimeException $e) {
-        error_log('Initial GitHub sync failed: ' . $e->getMessage());
-    }
-
     respond(201, ['data' => [
-        'userid'       => $userid,
-        'login'        => $login,
-        'email'        => $email,
-        'token'        => $token,
-        'githubSynced' => $githubSynced,
+        'userid' => $userid,
+        'login'  => $login,
+        'email'  => $email,
+        'token'  => $token,
     ]]);
 }
 
@@ -221,7 +189,7 @@ function currentSession($db) {
                 u.displayname, u.avatar, u.isadmin,
                 gp.avatar_url AS github_avatar
          FROM users u
-         LEFT JOIN github_profiles gp ON gp.userid = u.userid
+         LEFT JOIN github_profiles gp ON gp.userid = u.userid AND gp.github_id IS NOT NULL
          WHERE u.userid = :userid'
     );
     $stmt->execute([':userid' => $userid]);
