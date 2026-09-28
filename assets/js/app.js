@@ -1129,10 +1129,10 @@
   async function viewFollowing(root, query = {}) {
     if (!requireGate(root)) return;
     root.innerHTML = '<div class="container"><div class="spread wrap"><div><h1 class="page-title">contacts</h1></div>' +
-      '<div class="row wrap"><a class="btn" href="#/browse">discover developers</a><button class="btn btn-primary" id="add-contact">' + ICON.plus + ' new contact</button></div></div>' +
+      '<div class="row wrap"><a class="btn" href="#/browse">browse</a><button class="btn btn-primary" id="add-contact">' + ICON.plus + ' new contact</button></div></div>' +
       '<form class="contact-search" id="contact-search"><label class="sr-only" for="contact-filter">Search contacts</label>' +
-      '<input class="input" type="search" id="contact-filter" placeholder="search name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
-      '<button class="btn" type="submit">search</button></form><div id="contact-results" aria-live="polite" class="section"></div></div>';
+      '<input class="search-input" type="search" id="contact-filter" placeholder="search name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
+      '<button class="btn btn-primary" type="submit">' + ICON.search + '</button></form><div id="contact-results" aria-live="polite" class="section"></div></div>';
     const results = $('#contact-results');
     const search = $('#contact-filter');
     let page = 1, generation = 0;
@@ -2813,7 +2813,7 @@
       '</div>' +
       '<form class="search-form mt" id="role-search">' +
       '<input class="search-input" name="q" type="search" aria-label="Search roles" placeholder="search roles or organizations" value="' + escapeHtml(query.q || '') + '">' +
-      '<button class="btn" type="submit">' + ICON.search + '</button></form>' +
+      '<button class="btn btn-primary" type="submit">' + ICON.search + '</button></form>' +
       '<div class="card-grid section">' +
       (roles.length ? roles.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
       '</div>' +
