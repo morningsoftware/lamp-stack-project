@@ -22,6 +22,12 @@
         </nav>
       </div>
       <div class="nav-actions">
+        <form class="nav-search hidden" id="nav-search" role="search">
+          <input class="search-input" type="search" aria-label="Search developer directory" placeholder="search developers…" autocomplete="off">
+          <button class="btn btn-primary btn-icon" type="submit" aria-label="Search">
+            <svg class="icon" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg>
+          </button>
+        </form>
         <button class="btn btn-icon btn-ghost" id="theme-toggle" title="toggle theme" aria-label="toggle theme"></button>
         <div id="profile-slot"></div>
       </div>

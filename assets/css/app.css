@@ -105,6 +105,8 @@ svg.spark { width: 76px; height: 18px; }
 .nav-link:hover, .nav-link.active { color: var(--text); background: var(--surface-2); }
 .nav-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 #profile-slot { display: flex; align-items: center; gap: 4px; }
+.nav-search { display: flex; align-items: center; gap: 6px; }
+.nav-search .search-input { flex: none; width: 210px; padding: 7px 12px; font-size: 13px; }
 
 /* ---------- Buttons ---------- */
 .btn {

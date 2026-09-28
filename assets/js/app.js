@@ -380,11 +380,15 @@
     const navContacts = $('#nav-contacts');
     const navMessages = $('#nav-messages');
     const navAdmin = $('#nav-admin');
+    const navBrowse = $('#nav-browse');
+    const navSearch = $('#nav-search');
 
     if (!isLoggedIn()) {
       if (navContacts) navContacts.classList.add('hidden');
       if (navMessages) navMessages.classList.add('hidden');
       if (navAdmin) navAdmin.classList.add('hidden');
+      if (navBrowse) navBrowse.classList.add('hidden');
+      if (navSearch) navSearch.classList.add('hidden');
       slot.innerHTML =
         '<div class="row" style="gap:8px">' +
         '<button class="btn btn-sm btn-ghost" id="nav-login-btn">sign in</button>' +
@@ -397,6 +401,8 @@
 
     if (navContacts) navContacts.classList.remove('hidden');
     if (navMessages) navMessages.classList.remove('hidden');
+    if (navBrowse) navBrowse.classList.remove('hidden');
+    if (navSearch) navSearch.classList.remove('hidden');
 
     const user = state.user || {};
     if (navAdmin) {
@@ -1246,15 +1252,9 @@
           '<button class="btn btn-primary btn-sm" id="message-btn">' + ICON.mail + ' message</button>') +
       '<a class="btn btn-sm" href="#/compare?a=' + profile.userid + '">' + ICON.compare + ' compare</a>' +
       '</div></section>' +
-      (isOwner
-        ? '<section class="section">' +
-          '<form class="search-form" id="profile-search">' +
-          '<input class="search-input" type="search" aria-label="Search developer directory" placeholder="search developers by name, @login, skill…" autocomplete="off">' +
-          '<button class="btn btn-primary" type="submit">' + ICON.search + ' search</button>' +
-          '</form>' +
-          '<div class="row wrap mt">' +
-          '<a class="btn btn-primary" href="#/contacts">' + ICON.user + ' my contacts</a>' +
-          (state.user.isAdmin ? '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' : '') +
+      (isOwner && state.user.isAdmin
+        ? '<section class="section"><div class="row wrap mt">' +
+          '<a class="btn" href="#/admin">' + ICON.shield + ' admin panel</a>' +
           '</div></section>'
         : '') +
       (profile.bio ? '<p class="bio section">' + escapeHtml(profile.bio) + '</p>' : '') +
@@ -2548,6 +2548,11 @@
 
   (async function init() {
     initTheme();
+    $('#nav-search').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = $('#nav-search input').value.trim();
+      location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
+    });
     await resolveSession();
     renderProfileSlot();
     await render();
