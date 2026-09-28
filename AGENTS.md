@@ -131,6 +131,51 @@ Every authenticated page follows the same shape: `.container` → `.spread` head
 - Feedback via `toast(msg, type)`; modals via `formDialog(...)` / `messageDialog(...)`.
 - All network access goes through `window.API` (defined in `api.js`). Don't call `fetch` directly in views.
 
+### CSS class reference
+
+Prefer these existing classes over ad-hoc inline styles. Don't introduce a new utility class when one of these already covers it.
+
+**Layout**
+- `.container` — wrap each page's content (900px, centered).
+- `.spread` — the standard page header: `.page-title` on the left, action button(s) on the right.
+- `.section` — vertical rhythm between page blocks (36px top margin).
+- `.stack` — vertical list with equal gaps.
+- `.row` — horizontal flex row of buttons/controls (wraps).
+- `.panel` — bordered, rounded surface block.
+- `.card-grid` — responsive grid of cards (auto-fill, min 300px).
+
+**Text**
+- `.page-title` — the page `<h1>` (24px mono).
+- `.section-title` — small uppercase section label.
+- `.sub` — muted subtitle under a title.
+- `.mono` / `.muted` / `.faint` — font-family / muted / faint color utilities.
+- `.ellipsis` — single-line truncation.
+
+**Buttons** — always `.btn` plus exactly one variant
+- `.btn-primary` — the primary action.
+- `.btn-ghost` — a neutral/secondary action.
+- `.btn-danger` — a destructive action.
+- `.btn-sm` — compact size; `.btn-icon` — square, icon-only.
+
+**Forms**
+- `.field` — label + control group (use the `field()` / `textArea()` JS helpers).
+- `.input`, `.select`, `.textarea` — the standard controls.
+- `.form-grid` — stacked fields with 14px gaps; `.form-columns` — two-column field row.
+- `.form-hint` / `.form-error` — help text / inline error.
+- `.dialog-actions` — modal button row (right-aligned; a lone primary button goes full-width).
+
+**Chips & badges**
+- `.chip` — a skill/tag pill; add `.static` (non-interactive), `.toggle`/`.on` (filter toggle), or `.dot` (color swatch).
+- `.badge` — small uppercase status label; `.accent` for a highlighted one.
+
+**Feedback / states**
+- `.empty` — empty-state block (icon + title + text); `.empty-inline` for a one-liner.
+- `.skeleton` — loading placeholder.
+- `.toast` — toast message (with `.error` / `.success`).
+
+**Utilities**
+- `.hidden`, `.center`, `.flex1`, `.mt`, `.wrap`, `.sr-only`.
+
 ## 5. Configuration
 
 Configuration is read from `.env` (gitignored); `.env.example` documents every key and is the source of truth. The PHP `loadEnv()` re-reads `.env` per request, so no restart is needed after edits (Apache restart is only needed for PHP ini changes).
