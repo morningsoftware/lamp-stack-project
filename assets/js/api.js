@@ -39,7 +39,7 @@
           throw new Error('A secure API connection is required.');
         }
         const res = await fetch(this.base + path, {
-          method, headers, signal: controller.signal,
+          method, headers, signal: controller.signal, cache: 'no-store',
           body: body !== undefined ? JSON.stringify(body) : undefined,
         });
         const text = await res.text();
