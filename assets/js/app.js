@@ -542,6 +542,18 @@
     $('#auth-switch').addEventListener('click', () => openAuthModal(registering ? 'login' : 'register'));
   }
 
+  function messageDialog(title, text, actions) {
+    const host = $('#modal-root');
+    if (!host.firstElementChild) modalOpener = document.activeElement;
+    document.body.style.overflow = 'hidden';
+    host.innerHTML = '<div class="modal" id="modal-backdrop"><section class="modal-card message-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">' +
+      '<div class="spread"><h2 id="dialog-title">' + escapeHtml(title) + '</h2><button class="btn btn-icon btn-ghost" type="button" data-close aria-label="Close dialog">' + ICON.x + '</button></div>' +
+      '<p class="sub" id="dialog-description">' + escapeHtml(text) + '</p>' +
+      (actions ? '<div class="dialog-actions">' + actions + '</div>' : '') + '</section></div>';
+    $$('[data-close]', host).forEach(button => button.addEventListener('click', closeModal));
+    $('#modal-backdrop').addEventListener('click', e => { if (e.target.id === 'modal-backdrop') closeModal(); });
+  }
+
   function closeModal() {
     if ($('#dialog-form')?.dataset.busy) return;
     $('#modal-root').innerHTML = '';
@@ -651,11 +663,7 @@
         toast('Welcome back','success');
       } catch (err) {
         API.setToken(null); state.user = null;
-        root.innerHTML = '<div class="container">' + emptyState('!', 'Login failed',
-          'The username or password was incorrect. Please try again.',
-          '<button class="btn btn-primary" id="retry-login">Try again</button>') + '</div>';
-        $('#retry-login').addEventListener('click', () => render());
-        root.focus();
+        messageDialog('Login failed', 'The username or password was incorrect. Please try again.');
       } finally {
         delete form.dataset.busy;
         if (button.isConnected) { button.disabled = false; button.textContent = 'Sign in'; }

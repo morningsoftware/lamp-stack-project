@@ -551,6 +551,11 @@ svg.spark { width: 76px; height: 18px; }
 .modal-card { width: min(94vw, 440px); padding: 24px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); max-height: 90vh; overflow-y: auto; animation: pop 0.18s ease-out; }
 .modal-card h2 { margin: 0 0 4px; font-family: var(--mono); font-size: 19px; }
 .modal-card .sub { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+.modal-card.message-dialog { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 10px; min-height: 120px; }
+.modal-card.message-dialog .spread { justify-content: space-between; }
+.modal-card.message-dialog h2 { margin: 0; }
+.modal-card.message-dialog .sub { margin: 0; }
+.modal-card.message-dialog .spread [data-close] { position: absolute; top: 12px; right: 12px; }
 .tabs { display: flex; border: 1px solid var(--line-strong); border-radius: var(--radius); margin-bottom: 18px; overflow: hidden; }
 .tab { flex: 1; text-align: center; padding: 9px; font-weight: 600; font-size: 13px; font-family: var(--mono); cursor: pointer; color: var(--muted); border: none; background: var(--surface); }
 .tab + .tab { border-left: 1px solid var(--line); }
