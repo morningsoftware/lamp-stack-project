@@ -1234,7 +1234,7 @@
       '<div class="profile-meta">' +
       (profile.jobTitle ? '<span class="meta-item">' + ICON.briefcase + escapeHtml(profile.jobTitle) + '</span>' : '') +
       (profile.location ? '<span class="meta-item">' + ICON.location + escapeHtml(profile.location) + '</span>' : '') +
-      (isOwner && state.user.email ? '<span class="meta-item">' + ICON.mail + escapeHtml(state.user.email) + '</span>' : '') +
+      (isOwner && state.user.email ? '<button type="button" class="meta-item contact-email" data-email="' + escapeHtml(state.user.email) + '" title="copy email">' + ICON.mail + escapeHtml(state.user.email) + '</button>' : '') +
       (gh && gh.username ? '<a class="meta-item" href="' + escapeHtml(gh.profileUrl) + '" target="_blank" rel="noopener">' + ICON.github + escapeHtml(gh.username) + '</a>' : '') +
       '</div></div>' +
       '<div class="profile-actions">' +
@@ -1269,12 +1269,15 @@
       '</div>';
 
     $('#share-btn').addEventListener('click', () => shareProfile(profile));
-    const profileSearch = $('#profile-search');
-    if (profileSearch) {
-      profileSearch.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const q = profileSearch.querySelector('input').value.trim();
-        location.hash = '#/browse' + (q ? '?q=' + encodeURIComponent(q) : '');
+    const profileEmail = $('.profile-meta .contact-email');
+    if (profileEmail) {
+      profileEmail.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(profileEmail.dataset.email);
+          toast('Email copied', 'success');
+        } catch (e) {
+          toast('Email: ' + profileEmail.dataset.email, 'info');
+        }
       });
     }
     const followBtn = $('#follow-btn');
