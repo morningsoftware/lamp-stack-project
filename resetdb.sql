@@ -12,6 +12,11 @@ USE ContactManagerDB;
 
 -- Drop tables (children before parents)
 DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS applications;
+DROP TABLE IF EXISTS role_skills;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS organization_members;
+DROP TABLE IF EXISTS organizations;
 DROP TABLE IF EXISTS conversation_participants;
 DROP TABLE IF EXISTS conversations;
 DROP TABLE IF EXISTS github_repositories;
@@ -211,6 +216,8 @@ CREATE TABLE messages (
   conversationid INT NOT NULL,
   sender_userid  INT NOT NULL,
   body           TEXT NOT NULL,
+  roleid         INT DEFAULT NULL,
+  organizationid INT DEFAULT NULL,
   created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   KEY idx_messages_conversation (conversationid, created_at),
   KEY idx_messages_sender (sender_userid),
@@ -219,6 +226,86 @@ CREATE TABLE messages (
   CONSTRAINT fk_messages_sender FOREIGN KEY (sender_userid)
     REFERENCES users (userid) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Organizations, job listings, and applications
+CREATE TABLE organizations (
+  organizationid INT AUTO_INCREMENT PRIMARY KEY,
+  name           VARCHAR(100) NOT NULL,
+  slug           VARCHAR(50)  NOT NULL,
+  description    TEXT,
+  location       VARCHAR(100) DEFAULT NULL,
+  website        VARCHAR(255) DEFAULT NULL,
+  logo           VARCHAR(255) DEFAULT NULL,
+  created_by     INT DEFAULT NULL,
+  created_at     TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_organizations_slug (slug),
+  CONSTRAINT fk_organizations_created_by FOREIGN KEY (created_by)
+    REFERENCES users (userid) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE organization_members (
+  organizationid INT NOT NULL,
+  userid         INT NOT NULL,
+  membership     VARCHAR(20) NOT NULL DEFAULT 'member',
+  created_at     TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (organizationid, userid),
+  KEY idx_organization_members_userid (userid),
+  CONSTRAINT fk_organization_members_org FOREIGN KEY (organizationid)
+    REFERENCES organizations (organizationid) ON DELETE CASCADE,
+  CONSTRAINT fk_organization_members_user FOREIGN KEY (userid)
+    REFERENCES users (userid) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE roles (
+  roleid         INT AUTO_INCREMENT PRIMARY KEY,
+  organizationid INT NOT NULL,
+  name           VARCHAR(100) NOT NULL,
+  description    TEXT,
+  status         VARCHAR(20) NOT NULL DEFAULT 'open',
+  created_by     INT DEFAULT NULL,
+  created_at     TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  closed_at      TIMESTAMP NULL DEFAULT NULL,
+  updated_at     TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_roles_org_status (organizationid, status),
+  CONSTRAINT fk_roles_organization FOREIGN KEY (organizationid)
+    REFERENCES organizations (organizationid) ON DELETE CASCADE,
+  CONSTRAINT fk_roles_created_by FOREIGN KEY (created_by)
+    REFERENCES users (userid) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE role_skills (
+  roleid  INT NOT NULL,
+  skillid INT NOT NULL,
+  PRIMARY KEY (roleid, skillid),
+  KEY idx_role_skills_skillid (skillid),
+  CONSTRAINT fk_role_skills_role FOREIGN KEY (roleid)
+    REFERENCES roles (roleid) ON DELETE CASCADE,
+  CONSTRAINT fk_role_skills_skill FOREIGN KEY (skillid)
+    REFERENCES skills (skillid) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE applications (
+  applicationid INT AUTO_INCREMENT PRIMARY KEY,
+  roleid        INT NOT NULL,
+  userid        INT NOT NULL,
+  created_at    TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_applications_role_user (roleid, userid),
+  KEY idx_applications_userid (userid),
+  CONSTRAINT fk_applications_role FOREIGN KEY (roleid)
+    REFERENCES roles (roleid) ON DELETE CASCADE,
+  CONSTRAINT fk_applications_user FOREIGN KEY (userid)
+    REFERENCES users (userid) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE messages
+  ADD KEY idx_messages_roleid (roleid),
+  ADD KEY idx_messages_organizationid (organizationid),
+  ADD CONSTRAINT fk_messages_role FOREIGN KEY (roleid)
+    REFERENCES roles (roleid) ON DELETE SET NULL,
+  ADD CONSTRAINT fk_messages_organization FOREIGN KEY (organizationid)
+    REFERENCES organizations (organizationid) ON DELETE SET NULL,
+  ADD CONSTRAINT chk_messages_one_share CHECK (roleid IS NULL OR organizationid IS NULL);
 
 -- Seed data
 

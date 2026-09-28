@@ -48,6 +48,14 @@ switch ($resource) {
         require __DIR__ . '/handlers/conversations.php';
         break;
 
+    case 'organizations':
+        require __DIR__ . '/handlers/organizations.php';
+        break;
+
+    case 'roles':
+        require __DIR__ . '/handlers/roles.php';
+        break;
+
     default:
         respond(404, ['error' => 'Not found']);
 }

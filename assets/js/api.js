@@ -209,14 +209,52 @@
     messages(conversationid, params = {}) {
       return this.data('GET', '/conversations/' + conversationid + '/messages' + this.query(params));
     },
-    sendMessage(conversationid, body) {
-      return this.data('POST', '/conversations/' + conversationid + '/messages', { body });
+    sendMessage(conversationid, body, share = {}) {
+      return this.data('POST', '/conversations/' + conversationid + '/messages', { body, ...share });
     },
     markRead(conversationid) {
       return this.data('PUT', '/conversations/' + conversationid + '/read');
     },
     deleteMessage(id) {
       return this.data('DELETE', '/messages/' + id);
+    },
+
+    /* organizations and roles */
+    organizations(params = {}) {
+      return this.data('GET', '/organizations' + this.query(params));
+    },
+    organization(key) {
+      return this.data('GET', '/organizations/' + encodeURIComponent(key));
+    },
+    createOrganization(fields) {
+      return this.data('POST', '/organizations', fields);
+    },
+    updateOrganization(key, fields) {
+      return this.data('PUT', '/organizations/' + encodeURIComponent(key), fields);
+    },
+    addOrganizationMember(key, login) {
+      return this.data('POST', '/organizations/' + encodeURIComponent(key) + '/members', { login });
+    },
+    removeOrganizationMember(key, userid) {
+      return this.data('DELETE', '/organizations/' + encodeURIComponent(key) + '/members/' + userid);
+    },
+    roles(params = {}) {
+      return this.data('GET', '/roles' + this.query(params));
+    },
+    role(roleid) {
+      return this.data('GET', '/roles/' + roleid);
+    },
+    createRole(fields) {
+      return this.data('POST', '/roles', fields);
+    },
+    updateRole(roleid, fields) {
+      return this.data('PUT', '/roles/' + roleid, fields);
+    },
+    applyToRole(roleid) {
+      return this.data('POST', '/roles/' + roleid + '/apply');
+    },
+    withdrawApplication(roleid) {
+      return this.data('DELETE', '/roles/' + roleid + '/apply');
     },
 
     /* admin */
