@@ -24,7 +24,7 @@ switch ($method) {
         break;
 
     case 'POST':
-        requireAuth();
+        requireAdmin();
         $body = getRequestBody();
         requireFields($body, ['name']);
 

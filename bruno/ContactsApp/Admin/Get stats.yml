@@ -4,8 +4,8 @@ info:
   seq: 2
 
 http:
-  method: POST
-  url: ""
+  method: GET
+  url: "{{urlBase}}/api/index.php/admin/stats"
   auth: inherit
 
 settings:

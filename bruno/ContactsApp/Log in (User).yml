@@ -11,10 +11,10 @@ http:
     data:
       - name: login
         type: text
-        value: testuser2
+        value: "{{process.env.TEST_LOGIN}}"
       - name: password
         type: text
-        value: password1!
+        value: "{{process.env.TEST_PASSWORD}}"
   auth: inherit
 
 settings:

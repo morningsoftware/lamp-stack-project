@@ -1,4 +1,4 @@
-name: prid
+name: prod
 variables:
   - name: urlBase
     value: http://lamp.morning.codes

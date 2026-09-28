@@ -20,8 +20,16 @@ if ($resource === 'stats') {
     adminStats($db);
 }
 
+if ($resource === 'contacts') {
+    requireMethod('GET');
+    listAllContacts($db);
+}
+
 if ($resource === 'users') {
     if ($id === null) {
+        if (requestMethod() === 'POST') {
+            createUser($db);
+        }
         requireMethod('GET');
         listUsers($db);
     }
@@ -39,6 +47,10 @@ if ($resource === 'users') {
     if ($action === 'reset-password') {
         requireMethod('POST');
         issuePasswordReset($db, $adminId, $targetId);
+    }
+    if ($action === 'password') {
+        requireMethod('PUT');
+        changeUserPassword($db, $targetId);
     }
 
     respond(404, ['error' => 'Unknown admin user action']);
@@ -279,4 +291,185 @@ function issuePasswordReset($db, $adminId, $targetId) {
         'resetUrl' => appBaseUrl() . '/index.html#/reset?token=' . $token,
         'expiresInMinutes' => 60,
     ]]);
+}
+
+/**
+ * Creates an administrator account. The role is always granted server-side;
+ * the client-supplied flag is never trusted.
+ *
+ * @param PDO $db
+ */
+function createUser($db) {
+    $body = getRequestBody();
+    requireFields($body, ['login', 'email', 'password', 'firstName', 'lastName']);
+
+    $login     = clean($body['login']);
+    $email     = requireEmail($body['email']);
+    $password  = (string) $body['password'];
+    $firstName = clean($body['firstName']);
+    $lastName  = clean($body['lastName']);
+
+    if (strlen($login) < 3 || strlen($login) > 50) {
+        respond(400, ['error' => 'Login must be between 3 and 50 characters']);
+    }
+    if (strlen($password) < 8) {
+        respond(400, ['error' => 'Password must be at least 8 characters']);
+    }
+    if (strlen($firstName) > 50 || strlen($lastName) > 50) {
+        respond(400, ['error' => 'Name must be 50 characters or fewer']);
+    }
+
+    $display = trim("{$firstName} {$lastName}");
+
+    try {
+        $stmt = $db->prepare(
+            'INSERT INTO users (loginuid, email, password, firstname, lastname, displayname, isadmin)
+             VALUES (:login, :email, :hash, :first, :last, :display, 1)'
+        );
+        $stmt->execute([
+            ':login'   => $login,
+            ':email'   => $email,
+            ':hash'    => password_hash($password, PASSWORD_BCRYPT),
+            ':first'   => $firstName,
+            ':last'    => $lastName,
+            ':display' => $display !== '' ? $display : $login,
+        ]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            respond(409, ['error' => 'Login or email is already registered']);
+        }
+        error_log('Create user error: ' . $e->getMessage());
+        respond(500, ['error' => 'Could not create user']);
+    }
+
+    $userid = (int) $db->lastInsertId();
+    respond(201, ['data' => [
+        'userid'  => $userid,
+        'login'   => $login,
+        'email'   => $email,
+        'isAdmin' => true,
+    ]]);
+}
+
+/**
+ * Lists contacts across all users (or a single owner) with search and
+ * pagination.
+ *
+ * @param PDO $db
+ */
+function listAllContacts($db) {
+    $q      = isset($_GET['q']) ? clean($_GET['q']) : '';
+    $owner  = isset($_GET['userid']) ? (int) $_GET['userid'] : 0;
+    $page   = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+    $limit  = isset($_GET['limit']) ? max(1, min(100, (int) $_GET['limit'])) : 20;
+    $offset = ($page - 1) * $limit;
+
+    $where  = '1 = 1';
+    $params = [];
+
+    if ($owner > 0) {
+        $where .= ' AND c.userid = :owner';
+        $params[':owner'] = $owner;
+    }
+    if ($q !== '') {
+        $like   = '%' . $q . '%';
+        $where .= ' AND (c.firstname LIKE :q1 OR c.lastname LIKE :q2
+                         OR c.email LIKE :q3 OR c.phone LIKE :q4 OR c.description LIKE :q5
+                         OR u.loginuid LIKE :q6 OR u.displayname LIKE :q7)';
+        $params += [
+            ':q1' => $like, ':q2' => $like, ':q3' => $like, ':q4' => $like,
+            ':q5' => $like, ':q6' => $like, ':q7' => $like,
+        ];
+    }
+
+    $countStmt = $db->prepare(
+        'SELECT COUNT(*)
+         FROM contacts c
+         JOIN users u ON u.userid = c.userid
+         WHERE ' . $where
+    );
+    foreach ($params as $key => $value) {
+        $countStmt->bindValue($key, $value);
+    }
+    $countStmt->execute();
+    $total = (int) $countStmt->fetchColumn();
+
+    $stmt = $db->prepare(
+        'SELECT c.contactid, c.userid AS owner_id, c.firstname, c.lastname,
+                c.description, c.email, c.phone,
+                u.loginuid AS owner_login, u.displayname AS owner_displayname
+         FROM contacts c
+         JOIN users u ON u.userid = c.userid
+         WHERE ' . $where . '
+         ORDER BY c.created_at DESC, c.contactid DESC
+         LIMIT :limit OFFSET :offset'
+    );
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $data = array_map(function ($row) {
+        return [
+            'contactid'   => (int) $row['contactid'],
+            'ownerId'     => (int) $row['owner_id'],
+            'ownerLogin'  => $row['owner_login'],
+            'ownerName'   => $row['owner_displayname'] ?: trim("{$row['firstname']} {$row['lastname']}"),
+            'firstName'   => $row['firstname'],
+            'lastName'    => $row['lastname'],
+            'email'       => $row['email'],
+            'phone'       => $row['phone'],
+            'description' => $row['description'],
+        ];
+    }, $stmt->fetchAll());
+
+    respond(200, ['data' => $data, 'meta' => [
+        'total' => $total,
+        'page'  => $page,
+        'limit' => $limit,
+    ]]);
+}
+
+/**
+ * Sets a user's password and revokes their sessions and reset tokens.
+ *
+ * @param PDO $db
+ * @param int $targetId
+ */
+function changeUserPassword($db, $targetId) {
+    $body = getRequestBody();
+    $new  = isset($body['newPassword']) ? (string) $body['newPassword'] : '';
+    if ($new === '') {
+        respond(400, ['error' => 'A new password is required']);
+    }
+    if (strlen($new) < 8) {
+        respond(400, ['error' => 'Password must be at least 8 characters']);
+    }
+
+    $exists = $db->prepare('SELECT userid FROM users WHERE userid = :id');
+    $exists->execute([':id' => $targetId]);
+    if (!$exists->fetch()) {
+        respond(404, ['error' => 'User not found']);
+    }
+
+    try {
+        $db->beginTransaction();
+
+        $db->prepare('UPDATE users SET password = :password WHERE userid = :id')
+           ->execute([':password' => password_hash($new, PASSWORD_BCRYPT), ':id' => $targetId]);
+        $db->prepare('DELETE FROM sessions WHERE userid = :id')->execute([':id' => $targetId]);
+        $db->prepare('DELETE FROM password_resets WHERE userid = :id')->execute([':id' => $targetId]);
+
+        $db->commit();
+    } catch (PDOException $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        error_log('Change password error: ' . $e->getMessage());
+        respond(500, ['error' => 'Could not change password']);
+    }
+
+    respond(200, ['data' => ['message' => 'Password updated']]);
 }

@@ -103,7 +103,17 @@ function githubRequest($url) {
 function fetchCommitActivity($username, $repo) {
     $owner = $repo['owner']['login'] ?? $username;
     $name  = $repo['name'];
-    $data  = githubRequest("https://api.github.com/repos/{$owner}/{$name}/stats/commit_activity");
+    $url   = "https://api.github.com/repos/{$owner}/{$name}/stats/commit_activity";
+
+    // GitHub computes commit activity asynchronously: the first request
+    // often returns 202 with an empty body, so retry briefly before giving up.
+    $data = null;
+    for ($attempt = 0; $attempt < 3 && !is_array($data); $attempt++) {
+        if ($attempt > 0) {
+            usleep(800000);
+        }
+        $data = githubRequest($url);
+    }
 
     if (!is_array($data)) {
         return [0, null, null];
