@@ -739,6 +739,7 @@
   function readBrowseFilters(query) {
     return {
       q: query.q || '',
+      type: query.type === 'roles' ? 'roles' : 'developers',
       skills: query.skill ? query.skill.split(',').filter(Boolean) : [],
       skillMode: query.skillMode === 'all' ? 'all' : 'any',
       languages: query.language ? query.language.split(',').filter(Boolean) : [],
@@ -754,6 +755,7 @@
   function writeBrowseFilters(filters) {
     const params = new URLSearchParams();
     if (filters.q) params.set('q', filters.q);
+    if (filters.type) params.set('type', filters.type);
     if (filters.skills.length) params.set('skill', filters.skills.join(','));
     if (filters.skillMode === 'all') params.set('skillMode', 'all');
     if (filters.languages.length) params.set('language', filters.languages.join(','));
@@ -785,10 +787,9 @@
       '<aside class="filters" id="filters"></aside>' +
       '<div class="browse-main">' +
       '<section id="suggestions"></section>' +
-      '<section id="browse-roles" class="section"></section>' +
       '<div class="spread browse-toolbar">' +
       '<span class="results-count" id="browse-count"></span>' +
-      '<label class="inline-field">sort <select class="select" id="sort-select">' +
+      '<label class="inline-field" id="sort-wrap">sort <select class="select" id="sort-select">' +
       '<option value="match">best match</option>' +
       '<option value="stars">most stars</option>' +
       '<option value="followers">most followers</option>' +
@@ -819,6 +820,7 @@
       applyBrowse();
     });
 
+    syncBrowseLayout();
     loadBrowse(true);
   }
 
@@ -827,6 +829,27 @@
     browseState.offset = 0;
     loadBrowse(true);
   }
+
+  function setBrowseType(type) {
+    browseState.filters.type = type;
+    syncBrowseLayout();
+    applyBrowse();
+  }
+
+  function syncBrowseLayout() {
+    const rolesOnly = browseState.filters.type === 'roles';
+
+    const devBtn = $('#type-developers');
+    const roleBtn = $('#type-roles');
+    if (devBtn) devBtn.classList.toggle('btn-primary', !rolesOnly);
+    if (roleBtn) roleBtn.classList.toggle('btn-primary', rolesOnly);
+
+    const suggestions = $('#suggestions');
+    const sort = $('#sort-wrap');
+    if (suggestions) suggestions.classList.toggle('hidden', rolesOnly);
+    if (sort) sort.classList.toggle('hidden', rolesOnly);
+  }
+
 
   function createMultiSelect(host, options, selected, placeholder, onChange) {
     host.innerHTML =
@@ -920,6 +943,11 @@
     el.innerHTML =
       '<div class="filter-head spread"><h3 class="section-title" style="margin:0">filters</h3>' +
       '<button class="btn btn-sm btn-ghost" id="clear-filters">clear</button></div>' +
+      '<div class="filter-group"><div class="filter-title">show</div>' +
+      '<div class="row">' +
+      '<button class="btn btn-sm" id="type-developers" type="button">developers</button>' +
+      '<button class="btn btn-sm" id="type-roles" type="button">roles</button>' +
+      '</div></div>' +
       '<div class="filter-group"><div class="filter-title">skills</div>' +
       '<div id="f-skills"></div>' +
       (f.skills.length > 1 ? '<label class="inline-field">match <select class="select" id="skill-mode">' +
@@ -947,6 +975,7 @@
       drawFilters();
       $('#browse-q').value = '';
       $('#sort-select').value = browseState.filters.sort;
+      syncBrowseLayout();
       applyBrowse();
     });
 
@@ -968,6 +997,9 @@
       });
     });
     $('#f-following').addEventListener('change', (e) => { browseState.filters.following = e.target.checked; applyBrowse(); });
+
+    $('#type-developers').addEventListener('click', () => setBrowseType('developers'));
+    $('#type-roles').addEventListener('click', () => setBrowseType('roles'));
   }
 
   function devCardHtml(dev) {
@@ -1039,28 +1071,32 @@
     const count = $('#browse-count');
     const f = browseState.filters;
 
-    if (reset) {
-      grid.innerHTML = skeleton(4);
-      loadBrowseRoles();
-    }
-    more.innerHTML = '';
-
-    const params = {
-      q: f.q,
-      skill: f.skills,
-      skillMode: f.skills.length > 1 ? f.skillMode : '',
-      language: f.languages,
-      location: f.location,
-      jobtitle: f.jobtitle,
-      minStars: f.minStars,
-      hasGithub: f.hasGithub,
-      following: f.following,
-      sort: f.sort,
-      limit: 24,
-      offset: browseState.offset,
-    };
-
     try {
+      if (f.type === 'roles') {
+        if (reset) grid.innerHTML = skeleton(6);
+        more.innerHTML = '';
+        await loadBrowseRolesGrid();
+        return;
+      }
+
+      if (reset) grid.innerHTML = skeleton(4);
+      more.innerHTML = '';
+
+      const params = {
+        q: f.q,
+        skill: f.skills,
+        skillMode: f.skills.length > 1 ? f.skillMode : '',
+        language: f.languages,
+        location: f.location,
+        jobtitle: f.jobtitle,
+        minStars: f.minStars,
+        hasGithub: f.hasGithub,
+        following: f.following,
+        sort: f.sort,
+        limit: 24,
+        offset: browseState.offset,
+      };
+
       const payload = await API.profiles(params);
       const data = payload.data || [];
       browseState.total = payload.meta ? payload.meta.total : data.length;
@@ -1081,7 +1117,7 @@
         $('#load-more').addEventListener('click', () => loadBrowse(false));
       }
     } catch (err) {
-      grid.innerHTML = emptyState('!', 'could not load developers', err.message);
+      grid.innerHTML = emptyState('!', 'could not load results', err.message);
     } finally {
       browseState.loading = false;
     }
@@ -1095,36 +1131,24 @@
     return wanted.some((skill) => names.includes(skill));
   }
 
-  async function loadBrowseRoles() {
-    const el = $('#browse-roles');
-    if (!el) return;
+  async function loadBrowseRolesGrid() {
+    const grid = $('#browse-grid');
+    const count = $('#browse-count');
     const f = browseState.filters;
-    try {
-      const roles = await API.roles({ status: 'open', q: f.q }) || [];
-      const list = Array.isArray(roles) ? roles : [];
-      const matched = list.filter((role) => roleMatchesSkills(role, f.skills, f.skillMode));
-      if (!matched.length) {
-        el.classList.toggle('hidden', !list.length);
-        el.innerHTML = list.length
-          ? '<p class="muted">No open roles match these filters.</p>'
-          : '';
-        return;
-      }
-      el.classList.remove('hidden');
-      const shown = matched.slice(0, 6);
-      const params = new URLSearchParams();
-      params.set('status', 'open');
-      if (f.q) params.set('q', f.q);
-      el.innerHTML =
-        '<div class="spread browse-toolbar"><h3 class="section-title" style="margin:0">' +
-        ICON.briefcase + ' open roles</h3>' +
-        '<a class="btn btn-sm" href="#/roles?' + params.toString() + '">all roles</a></div>' +
-        '<div class="card-grid">' + shown.map(roleCard).join('') + '</div>';
-      bindRoleActions(el);
-    } catch (e) {
-      el.classList.remove('hidden');
-      el.innerHTML = '<p class="muted">' + escapeHtml(e.message || 'Open roles could not be loaded.') + '</p>';
+
+    const roles = await API.roles({ status: 'open', q: f.q }) || [];
+    const list = Array.isArray(roles) ? roles : [];
+    const matched = list.filter((role) => roleMatchesSkills(role, f.skills, f.skillMode));
+
+    grid.innerHTML = '';
+    if (!matched.length) {
+      grid.innerHTML = emptyState(ICON.search, 'no roles', 'Try removing a filter or searching differently.');
+      count.textContent = '0 roles';
+      return;
     }
+    grid.innerHTML = matched.map(roleCard).join('');
+    count.textContent = matched.length + ' open role' + (matched.length === 1 ? '' : 's');
+    bindRoleActions(grid);
   }
 
   async function loadSuggestions() {
