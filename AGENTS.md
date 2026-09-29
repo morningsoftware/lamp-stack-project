@@ -250,7 +250,7 @@ Staleness is governed by `GITHUB_REFRESH_HOURS` (default 24). GitHub commit acti
 
 - **Keep `AGENTS.md` up to date.** Any change that alters architecture, adds/renames/removes a file or directory, introduces a new convention or helper, or modifies the schema or a workflow **must** update this file in the same change. If `AGENTS.md` drifts from the codebase, it misleads both humans and agents.
 - **Branch workflow**: feature branches off `main`; open a PR to merge. **Pushing to `main` triggers an automatic deploy** to the production droplet (`.github/workflows/deploy.yml`), so never commit directly to `main`.
-- **Commits**: small, focused, one logical change each. Use a short imperative subject in lowercase (matching existing history, e.g. `add maintenance mode`, `fix add member button alignment`), with an optional blank-line-separated body explaining *why* when non-obvious.
+- **Commits**: small, focused, one logical change each. Use a short imperative subject in lowercase (matching existing history, e.g. `add maintenance mode`, `add member button alignment`), with an optional blank-line-separated body explaining *why* when non-obvious. When adding a feature, begin the commit with `feat:`, when commiting a fix, start with `fix:`. 
 - **Comments**: the codebase is intentionally sparse on comments. Don't add explanatory comments to code; a comment is only warranted for a non-obvious invariant or a "why" that isn't clear from the code.
 - **Style**: follow the design language in §4 and the casing rules; don't introduce new utility classes when an existing primitive fits.
 
