@@ -56,6 +56,7 @@ Every endpoint is of the form:
 - `helpers.php` — the API toolkit: `respond()`, `requireAuth()`, `requireAdmin()`, `bearerToken()`, `hashToken()`, `issueToken()`, `setCORSHeaders()`, `pathSegments()`, `isMaintenanceMode()`, `appBaseUrl()`, and input helpers (`clean()`, `requireEmail()`, `requireFields()`).
 - `github.php` — GitHub REST helpers (`githubFetch()`, `githubRequest()`, `fetchCommitActivity()`, `syncGithubForUser()`).
 - `oauth.php` — GitHub OAuth helpers (`githubOAuthExchangeCode()`, `githubOAuthFetchUser()`, `findOrCreateOAuthUser()`, `linkGithubAccount()`).
+- `oauth-state.php` — OAuth CSRF/state handling (`oauthSession()`, `oauthRemember()`, `oauthConsume()`); uses a short-lived server-side PHP session, not cookies.
 
 ## 3. Directory map
 
@@ -69,10 +70,14 @@ Every endpoint is of the form:
 │   └── icons.svg           # inline SVG sprite (referenced via <use>)
 ├── api/
 │   ├── index.php           # front controller / router
-│   ├── config/             # db, helpers, github, oauth
+│   ├── config/             # db, helpers, github, oauth, oauth-state
 │   ├── handlers/           # one file per API resource
 │   └── cron/               # refresh_github.php + refresh_github.sh
 ├── bruno/                  # Bruno API tests (see §9)
+├── docs/                   # OpenAPI spec + presentation notes (see §9)
+│   ├── openapi.yaml        # SwaggerHub demo spec (subset of endpoints)
+│   └── presentation-readiness.md  # demo/deployment checklist (time-boxed)
+├── tests/                  # standalone PHP test scripts (see §9)
 ├── .github/workflows/      # deploy.yml (deploys on push to main)
 ├── resetdb.sql             # full schema + seed data (fresh install)
 ├── migrate.sql             # idempotent migration (upgrade existing DB)
@@ -207,6 +212,7 @@ Key facts:
 - Sessions are opaque bearer tokens. Only the **SHA-256 hash** is stored (`sessions.token_hash`); the plaintext token is returned once to the client.
 - The verified GitHub identity is `github_profiles.github_id` (GitHub's numeric id), not the renameable username.
 - GitHub profile data (repos, stars, commits) is only shown when `github_id IS NOT NULL` — an account that hasn't completed OAuth linking shows no GitHub section.
+- OAuth CSRF protection uses a **separate short-lived server-side PHP session** (`oauth-state.php`), distinct from the bearer-token session table. `oauthRemember()` stashes the `state` (plus the linking user and a hash of their bearer token); `oauthConsume()` is single-use, `hash_equals`-checked, and 10-minute expiring. Do not fall back to cookies for this.
 
 ## 7. Invariants (must uphold)
 
@@ -234,11 +240,15 @@ Staleness is governed by `GITHUB_REFRESH_HOURS` (default 24). GitHub commit acti
 - **Local sanity checks before committing:**
   - `php -l <file>` for every changed PHP file.
   - `node --check <file>` for changed JS files.
+- **Standalone PHP test scripts** live in `tests/` (e.g. `tests/oauth-state.php`). They are run directly (`php tests/<file>.php`) and print `PASS`/throw on failure; they stub any `helpers.php` functions they need. Keep them self-contained and side-effect-free.
 
-There is no automated PHP test suite; verify behavior through Bruno or manual requests.
+### SwaggerHub / OpenAPI (demo only)
+
+`docs/openapi.yaml` is an OpenAPI 3.0 spec describing a **subset** of endpoints (`/ping`, `/auth/login`, `/contacts`). It is imported into SwaggerHub for the live API *demonstration*, not for testing — Bruno covers the full endpoint surface for testing. SwaggerHub and Bruno are not interchangeable: if the course rubric requires a live "try it out" demo, the OpenAPI spec must be imported into SwaggerHub; the repo file alone does not satisfy that. Keep the spec's server URL and demo accounts in sync with the deployed environment.
 
 ## 10. Contribution guidelines
 
+- **Keep `AGENTS.md` up to date.** Any change that alters architecture, adds/renames/removes a file or directory, introduces a new convention or helper, or modifies the schema or a workflow **must** update this file in the same change. If `AGENTS.md` drifts from the codebase, it misleads both humans and agents.
 - **Branch workflow**: feature branches off `main`; open a PR to merge. **Pushing to `main` triggers an automatic deploy** to the production droplet (`.github/workflows/deploy.yml`), so never commit directly to `main`.
 - **Commits**: small, focused, one logical change each. Use a short imperative subject in lowercase (matching existing history, e.g. `add maintenance mode`, `fix add member button alignment`), with an optional blank-line-separated body explaining *why* when non-obvious.
 - **Comments**: the codebase is intentionally sparse on comments. Don't add explanatory comments to code; a comment is only warranted for a non-obvious invariant or a "why" that isn't clear from the code.
