@@ -3365,6 +3365,11 @@
     toast('Your session ended. Please sign in again.', 'error');
     render();
   });
+  window.addEventListener('session-started', async () => {
+    await resolveSession();
+    renderProfileSlot();
+    await render();
+  });
   window.addEventListener('maintenance-mode', () => {
     state.maintenance = true;
     renderMaintenance();

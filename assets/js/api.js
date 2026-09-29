@@ -327,5 +327,11 @@
     },
   };
 
+  window.addEventListener('storage', (e) => {
+    if (e.key !== null && e.key !== tokenKey) return;
+    API.token = localStorage.getItem(tokenKey) || null;
+    window.dispatchEvent(new Event(API.token ? 'session-started' : 'session-expired'));
+  });
+
   window.API = API;
 })();
