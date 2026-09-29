@@ -151,6 +151,12 @@ function findOrCreateOAuthUser($db, $ghUser) {
     }
 
     $ghLogin = clean((string) $ghUser['login']);
+    $legacy = $db->prepare('SELECT userid FROM github_profiles WHERE username = :username AND github_id IS NULL');
+    $legacy->execute([':username' => $ghLogin]);
+    if ($legacy->fetch()) {
+        throw new DomainException('This GitHub username is already on an existing account. Sign in with your username and password, then connect GitHub in Settings to enable GitHub sign-in.');
+    }
+
     $email   = isset($ghUser['email']) ? clean((string) $ghUser['email']) : '';
     if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $email = '';
@@ -228,22 +234,35 @@ function findOrCreateOAuthUser($db, $ghUser) {
  * @param array $ghUser GitHub user payload from /user
  */
 function linkGithubAccount($db, $userid, $ghUser) {
-    $stmt = $db->prepare(
-        'INSERT INTO github_profiles (userid, github_id, username, avatar_url, profile_url)
-         VALUES (:userid, :github_id, :username, :avatar, :url)
-         ON DUPLICATE KEY UPDATE
-            github_id   = VALUES(github_id),
-            username    = VALUES(username),
-            avatar_url  = VALUES(avatar_url),
-            profile_url = VALUES(profile_url)'
-    );
-    $stmt->execute([
-        ':userid'    => $userid,
-        ':github_id' => (int) $ghUser['id'],
-        ':username'  => clean((string) $ghUser['login']),
-        ':avatar'    => isset($ghUser['avatar_url']) ? clean((string) $ghUser['avatar_url']) : null,
-        ':url'       => isset($ghUser['html_url']) ? clean((string) $ghUser['html_url']) : null,
-    ]);
+    try {
+        $db->beginTransaction();
+        $check = $db->prepare('SELECT userid FROM github_profiles WHERE (github_id = :github_id OR username = :username) AND userid <> :userid FOR UPDATE');
+        $check->execute([':github_id' => (int) $ghUser['id'], ':username' => $ghUser['login'], ':userid' => $userid]);
+        if ($check->fetch()) {
+            throw new DomainException('This GitHub account is already associated with another account. Sign in to that account to connect it.');
+        }
+        $own = $db->prepare('SELECT github_id FROM github_profiles WHERE userid = :userid FOR UPDATE');
+        $own->execute([':userid' => $userid]);
+        $existing = $own->fetch();
+        if ($existing && $existing['github_id'] !== null && (int) $existing['github_id'] !== (int) $ghUser['id']) {
+            throw new DomainException('Disconnect the current GitHub account before connecting a different one.');
+        }
+        $sql = $existing
+            ? 'UPDATE github_profiles SET github_id = :github_id, username = :username, avatar_url = :avatar, profile_url = :url WHERE userid = :userid'
+            : 'INSERT INTO github_profiles (userid, github_id, username, avatar_url, profile_url) VALUES (:userid, :github_id, :username, :avatar, :url)';
+        $stmt = $db->prepare($sql);
+        $stmt->execute([
+            ':userid' => $userid,
+            ':github_id' => (int) $ghUser['id'],
+            ':username' => clean((string) $ghUser['login']),
+            ':avatar' => $ghUser['avatar_url'] ?? null,
+            ':url' => $ghUser['html_url'] ?? null,
+        ]);
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $e;
+    }
 
     try {
         syncGithubForUser($db, $userid, clean((string) $ghUser['login']), $ghUser);

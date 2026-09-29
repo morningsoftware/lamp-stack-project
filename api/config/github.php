@@ -177,6 +177,13 @@ function syncGithubForUser($db, $userid, $username, $profile = null, $repos = nu
         $profile = $result['data'];
     }
 
+    $identity = $db->prepare('SELECT github_id FROM github_profiles WHERE userid = :userid');
+    $identity->execute([':userid' => $userid]);
+    $verifiedId = $identity->fetchColumn();
+    if ($verifiedId && (int) $verifiedId !== (int) ($profile['id'] ?? 0)) {
+        throw new RuntimeException('GitHub identity does not match the connected account');
+    }
+
     $resolvedUsername = $profile['login'];
 
     if ($repos === null) {
