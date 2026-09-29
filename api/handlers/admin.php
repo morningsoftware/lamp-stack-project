@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/helpers.php';
+require_once __DIR__ . '/../config/validation.php';
 require_once __DIR__ . '/../config/github.php';
 
 $db       = getDB();
@@ -303,7 +304,7 @@ function createUser($db) {
     $body = getRequestBody();
     requireFields($body, ['login', 'email', 'password', 'firstName', 'lastName']);
 
-    $login     = clean($body['login']);
+    $login     = validatedLogin($body['login']);
     $email     = requireEmail($body['email']);
     $password  = (string) $body['password'];
     $firstName = clean($body['firstName']);

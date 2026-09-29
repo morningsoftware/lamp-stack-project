@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/helpers.php';
+require_once __DIR__ . '/../config/validation.php';
 
 $db       = getDB();
 $segments = pathSegments();
@@ -60,7 +61,7 @@ function registerUser($db) {
     $body = getRequestBody();
     requireFields($body, ['login', 'email', 'password']);
 
-    $login    = clean($body['login']);
+    $login    = validatedLogin($body['login']);
     $email    = requireEmail($body['email']);
     $password = (string) $body['password'];
 
@@ -71,11 +72,11 @@ function registerUser($db) {
         respond(400, ['error' => 'Password must be at least 8 characters']);
     }
 
-    $firstName = isset($body['firstName']) ? clean($body['firstName']) : '';
-    $lastName  = isset($body['lastName']) ? clean($body['lastName']) : '';
+    $firstName = isset($body['firstName']) ? validatedText($body['firstName'], 50, 'First name') : '';
+    $lastName  = isset($body['lastName']) ? validatedText($body['lastName'], 50, 'Last name') : '';
 
     $display = isset($body['displayName']) && clean($body['displayName']) !== ''
-        ? clean($body['displayName'])
+        ? validatedText($body['displayName'], 100, 'Display name')
         : trim("{$firstName} {$lastName}");
     if ($display === '') {
         $display = $login;
