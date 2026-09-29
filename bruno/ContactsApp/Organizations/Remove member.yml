@@ -1,0 +1,19 @@
+info:
+  name: Remove member
+  type: http
+  seq: 96
+
+http:
+  method: DELETE
+  url: "{{urlBase}}/api/index.php/organizations/{{process.env.TEST_ORG_SLUG}}/members/{{process.env.TEST_MEMBER_ID}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

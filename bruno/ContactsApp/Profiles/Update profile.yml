@@ -1,0 +1,28 @@
+info:
+  name: Update profile
+  type: http
+  seq: 23
+
+http:
+  method: PUT
+  url: "{{urlBase}}/api/index.php/profiles/{{process.env.TEST_USERID}}"
+  body:
+    type: json
+    json: |
+      {
+        "firstName": "Ada",
+        "lastName": "Lovelace",
+        "jobTitle": "Software Engineer",
+        "location": "London"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

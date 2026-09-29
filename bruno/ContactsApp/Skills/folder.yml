@@ -1,0 +1,7 @@
+info:
+  name: Skills
+  type: folder
+  seq: 50
+
+request:
+  auth: inherit

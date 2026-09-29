@@ -1,0 +1,19 @@
+info:
+  name: Get conversation
+  type: http
+  seq: 74
+
+http:
+  method: GET
+  url: "{{urlBase}}/api/index.php/conversations/{{process.env.TEST_CONVERSATION_ID}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

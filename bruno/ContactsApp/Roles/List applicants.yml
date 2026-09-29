@@ -1,0 +1,19 @@
+info:
+  name: List applicants
+  type: http
+  seq: 117
+
+http:
+  method: GET
+  url: "{{urlBase}}/api/index.php/roles/{{process.env.TEST_ROLE_ID}}/applicants"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

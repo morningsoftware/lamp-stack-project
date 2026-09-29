@@ -1,0 +1,19 @@
+info:
+  name: Disable user
+  type: http
+  seq: 132
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/admin/users/{{process.env.TEST_USERID}}/disable"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

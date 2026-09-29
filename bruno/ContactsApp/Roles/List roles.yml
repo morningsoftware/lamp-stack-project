@@ -1,0 +1,19 @@
+info:
+  name: List roles
+  type: http
+  seq: 111
+
+http:
+  method: GET
+  url: "{{urlBase}}/api/index.php/roles?status=open"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

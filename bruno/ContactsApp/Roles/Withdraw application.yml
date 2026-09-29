@@ -1,0 +1,19 @@
+info:
+  name: Withdraw application
+  type: http
+  seq: 116
+
+http:
+  method: DELETE
+  url: "{{urlBase}}/api/index.php/roles/{{process.env.TEST_ROLE_ID}}/apply"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

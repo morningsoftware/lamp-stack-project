@@ -1,0 +1,19 @@
+info:
+  name: Disconnect GitHub
+  type: http
+  seq: 67
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/oauth/github/disconnect"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

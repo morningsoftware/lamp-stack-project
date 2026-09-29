@@ -1,0 +1,19 @@
+info:
+  name: Mark read
+  type: http
+  seq: 78
+
+http:
+  method: PUT
+  url: "{{urlBase}}/api/index.php/conversations/{{process.env.TEST_CONVERSATION_ID}}/read"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

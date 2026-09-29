@@ -1,0 +1,7 @@
+info:
+  name: Messages
+  type: folder
+  seq: 70
+
+request:
+  auth: inherit

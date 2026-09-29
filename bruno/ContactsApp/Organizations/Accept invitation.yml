@@ -1,0 +1,19 @@
+info:
+  name: Accept invitation
+  type: http
+  seq: 99
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/organizations/invitations/{{process.env.TEST_INVITATION_ID}}/accept"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

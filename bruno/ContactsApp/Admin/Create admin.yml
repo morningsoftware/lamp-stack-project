@@ -1,0 +1,29 @@
+info:
+  name: Create admin
+  type: http
+  seq: 131
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/admin/users"
+  body:
+    type: json
+    json: |
+      {
+        "login": "{{process.env.NEW_LOGIN}}",
+        "email": "{{process.env.NEW_EMAIL}}",
+        "password": "{{process.env.NEW_PASSWORD}}",
+        "firstName": "Admin",
+        "lastName": "User"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 201

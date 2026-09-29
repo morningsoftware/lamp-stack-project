@@ -1,0 +1,19 @@
+info:
+  name: Get skills
+  type: http
+  seq: 26
+
+http:
+  method: GET
+  url: "{{urlBase}}/api/index.php/profiles/{{process.env.TEST_USERID}}/skills"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

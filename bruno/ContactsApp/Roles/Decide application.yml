@@ -1,0 +1,25 @@
+info:
+  name: Decide application
+  type: http
+  seq: 118
+
+http:
+  method: PUT
+  url: "{{urlBase}}/api/index.php/roles/{{process.env.TEST_ROLE_ID}}/applicants/{{process.env.TEST_APPLICANT_ID}}"
+  body:
+    type: json
+    json: |
+      {
+        "decision": "accepted"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

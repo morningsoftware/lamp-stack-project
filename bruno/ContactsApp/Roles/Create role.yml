@@ -1,0 +1,28 @@
+info:
+  name: Create role
+  type: http
+  seq: 112
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/roles"
+  body:
+    type: json
+    json: |
+      {
+        "organizationid": "{{process.env.TEST_ORG_ID}}",
+        "name": "Backend Engineer",
+        "description": "PHP and MySQL",
+        "skillIds": [1, 2]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 201

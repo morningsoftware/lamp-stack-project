@@ -1,0 +1,19 @@
+info:
+  name: Remove participant
+  type: http
+  seq: 81
+
+http:
+  method: DELETE
+  url: "{{urlBase}}/api/index.php/conversations/{{process.env.TEST_CONVERSATION_ID}}/participants/{{process.env.TEST_USERID2}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

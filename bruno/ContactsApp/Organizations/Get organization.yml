@@ -1,0 +1,19 @@
+info:
+  name: Get organization
+  type: http
+  seq: 93
+
+http:
+  method: GET
+  url: "{{urlBase}}/api/index.php/organizations/{{process.env.TEST_ORG_SLUG}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200
