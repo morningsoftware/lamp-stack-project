@@ -373,12 +373,16 @@
   /* ---------------- Auth ---------------- */
 
   async function resolveSession() {
-    if (!API.token) return;
+    const token = API.token;
+    if (!token) return;
     try {
-      state.user = await API.session();
+      const user = await API.session();
+      if (API.token === token) state.user = user;
     } catch (e) {
-      API.setToken(null);
-      state.user = null;
+      if (API.token === token) {
+        API.setToken(null);
+        state.user = null;
+      }
     }
   }
 
@@ -3342,6 +3346,13 @@
   /* ---------------- Boot ---------------- */
 
   window.addEventListener('hashchange', () => { closeModal(); render(); });
+  window.addEventListener('session-changed', async () => {
+    state.user = null;
+    await resolveSession();
+    closeModal();
+    renderProfileSlot();
+    render();
+  });
   window.addEventListener('session-expired', () => {
     state.user = null; renderProfileSlot();
     toast('Your session ended. Please sign in again.', 'error');
@@ -3372,6 +3383,7 @@
     });
     try { await API.ping(); } catch (e) { /* maintenance-mode event handles the UI */ }
     if (state.maintenance) return;
+    await API.ready;
     await resolveSession();
     renderProfileSlot();
     await render();

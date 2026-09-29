@@ -242,19 +242,19 @@ function validateContactFields($body) {
         'description' => isset($body['description']) ? clean($body['description']) : '',
     ];
 
-    if (mb_strlen($fields['firstName']) > 50) {
+    if (contactTextLength($fields['firstName']) > 50) {
         respond(400, ['error' => 'First name must be 50 characters or fewer']);
     }
-    if (mb_strlen($fields['lastName']) > 50) {
+    if (contactTextLength($fields['lastName']) > 50) {
         respond(400, ['error' => 'Last name must be 50 characters or fewer']);
     }
-    if (mb_strlen($fields['email']) > 100) {
+    if (contactTextLength($fields['email']) > 100) {
         respond(400, ['error' => 'Email must be 100 characters or fewer']);
     }
-    if (mb_strlen($fields['phone']) > 10) {
+    if (contactTextLength($fields['phone']) > 10) {
         respond(400, ['error' => 'Phone must be 10 characters or fewer']);
     }
-    if (mb_strlen($fields['description']) > 100) {
+    if (contactTextLength($fields['description']) > 100) {
         respond(400, ['error' => 'Notes must be 100 characters or fewer']);
     }
 
@@ -280,4 +280,12 @@ function contactShape($row) {
         'phone'       => $row['phone'] ?? '',
         'description' => $row['description'] ?? '',
     ];
+}
+
+function contactTextLength($value) {
+    $length = preg_match_all('/./us', $value);
+    if ($length === false) {
+        respond(400, ['error' => 'Contact fields must contain valid UTF-8 text']);
+    }
+    return $length;
 }
