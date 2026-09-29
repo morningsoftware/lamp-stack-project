@@ -41,9 +41,17 @@ function syncGithub($db) {
     $targetId = isset($body['userid']) ? (int) $body['userid'] : $userid;
     $username = isset($body['username']) ? clean($body['username']) : '';
 
-    $stmt = $db->prepare('SELECT username, last_synced FROM github_profiles WHERE userid = :userid');
+    $stmt = $db->prepare('SELECT username, last_synced, github_id FROM github_profiles WHERE userid = :userid');
     $stmt->execute([':userid' => $targetId]);
     $row = $stmt->fetch();
+
+    if (!$row || $row['github_id'] === null) {
+        respond(409, ['error' => 'Connect GitHub in Settings before refreshing.']);
+    }
+    if ($username !== '' && strcasecmp($username, $row['username']) !== 0) {
+        respond(400, ['error' => 'Connect a different GitHub identity through Settings.']);
+    }
+    $username = $row['username'];
 
     if ($username === '') {
         $username = $row ? $row['username'] : '';

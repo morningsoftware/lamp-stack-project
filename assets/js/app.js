@@ -659,7 +659,8 @@
 
   function handleOauthCallback(root, query) {
     if (query.error) {
-      root.innerHTML = emptyState('!', 'sign-in failed', query.error);
+      history.replaceState(null, '', '#/oauth');
+      root.innerHTML = emptyState('!', 'sign-in failed', query.error, '<a class="btn btn-primary" href="#/">back to sign in</a>');
       return;
     }
     const token = query.token;
@@ -671,7 +672,8 @@
     API.session().then((user) => {
       state.user = user;
       renderProfileSlot();
-      location.hash = '#/';
+      history.replaceState(null, '', '#/');
+      render();
     }).catch(() => {
       API.setToken(null);
       state.user = null;
@@ -723,7 +725,9 @@
         toast('welcome back','success');
       } catch (err) {
         API.setToken(null); state.user = null;
-        messageDialog('login failed', 'The username or password was incorrect. Please try again.');
+        root.innerHTML = '<div class="container">' + emptyState('!', 'login failed', err.status === 403 ? 'This account has been disabled.' : 'The username or password was incorrect. Please try again.', '<button class="btn btn-primary" id="retry-login">try again</button>') + '</div>';
+        $('#retry-login').addEventListener('click', () => viewHome(root, {}));
+        $('#retry-login').focus();
       } finally {
         delete form.dataset.busy;
         if (button.isConnected) { button.disabled = false; button.textContent = 'sign in'; }
@@ -778,7 +782,7 @@
       '<div class="browse-head">' +
       '<form class="search-form" id="browse-search">' +
       '<input class="search-input" id="browse-q" type="search" aria-label="Search developers and roles" placeholder="search developers or roles…" value="' + escapeHtml(browseState.filters.q) + '">' +
-      '<button class="btn btn-primary" type="submit">' + ICON.search + '</button>' +
+      '<button class="btn btn-primary" type="submit" aria-label="Search">' + ICON.search + '</button>' +
       '</form>' +
       '</div>' +
       '<div class="browse-layout">' +
@@ -1181,7 +1185,7 @@
       '<div class="row wrap"><a class="btn" href="#/browse">browse</a><button class="btn btn-primary" id="add-contact">' + ICON.plus + ' new contact</button></div></div>' +
       '<form class="contact-search" id="contact-search"><label class="sr-only" for="contact-filter">Search contacts</label>' +
       '<input class="search-input" type="search" id="contact-filter" placeholder="search name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
-      '<button class="btn btn-primary" type="submit">' + ICON.search + '</button></form><div id="contact-results" aria-live="polite" class="section"></div></div>';
+      '<button class="btn btn-primary" type="submit" aria-label="Search">' + ICON.search + '</button></form><div id="contact-results" aria-live="polite" class="section"></div></div>';
     const results = $('#contact-results');
     const search = $('#contact-filter');
     let page = 1, generation = 0;
@@ -1899,6 +1903,7 @@
     const epoch = pollEpoch;
     try {
       const listChanged = await pollConversationList();
+      if (epoch !== pollEpoch) return;
       await pollOpenThread(conversationid);
       if (listChanged) drawConvoList();
     } catch (e) { /* best-effort polling */ }
@@ -1922,6 +1927,7 @@
 
     const messages = await API.messages(conversationid, { since: lastThreadMessageId }) || [];
     if (!messages.length) return;
+    if (String(parseHash().parts[1]) !== String(conversationid)) return;
     const latest = Number(messages[messages.length - 1].messageid);
     if (latest <= lastThreadMessageId) return;
 
@@ -2004,6 +2010,8 @@
     const body = $('#thread-body');
     if (!body || !messages.length) return;
     const convo = state.convos.find((c) => Number(c.conversationid) === Number(conversationid));
+    const empty = body.querySelector('.empty');
+    if (empty) empty.remove();
     body.insertAdjacentHTML('beforeend', messageBubbles(messages, convo ? convo.isGroup : false));
     body.scrollTop = body.scrollHeight;
   }
@@ -2065,15 +2073,26 @@
 
     const renameBtn = $('#rename-btn');
     if (renameBtn) {
-      renameBtn.addEventListener('click', async () => {
-        const name = prompt('group name', convo.name || '');
-        if (name === null) return;
-        try {
-          await API.renameConversation(conversationid, name);
-          refreshConversation(conversationid);
-        } catch (err) {
-          toast(err.message, 'error');
-        }
+      renameBtn.addEventListener('click', () => {
+        const holder = $('.thread-id');
+        holder.innerHTML = '<form id="rename-conversation" class="row">' +
+          field('name', 'group name', {required:true, maxlength:100}, convo.name || '') +
+          '<button class="btn" type="submit">save</button><button class="btn" type="button" id="cancel-rename">cancel</button>' +
+          '<p id="rename-error" class="form-error" role="status"></p></form>';
+        $('#cancel-rename').addEventListener('click', () => refreshConversation(conversationid));
+        $('#rename-conversation').addEventListener('submit', async e => {
+          e.preventDefault();
+          const button = e.target.querySelector('[type="submit"]');
+          button.disabled = true;
+          try {
+            await API.renameConversation(conversationid, new FormData(e.target).get('name'));
+            await refreshConversation(conversationid);
+          } catch (err) {
+            $('#rename-error').textContent = err.message;
+            button.disabled = false;
+          }
+        });
+        $('#field-name').focus();
       });
     }
 
@@ -2999,7 +3018,7 @@
       '</div>' +
       '<form class="search-form mt" id="role-search">' +
       '<input class="search-input" name="q" type="search" aria-label="Search roles" placeholder="search roles or organizations" value="' + escapeHtml(query.q || '') + '">' +
-      '<button class="btn btn-primary" type="submit">' + ICON.search + '</button></form>' +
+      '<button class="btn btn-primary" type="submit" aria-label="Search">' + ICON.search + '</button></form>' +
       '<div class="card-grid section">' +
       (listings.length ? listings.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
       '</div>' +
@@ -3106,30 +3125,17 @@
     $$('[data-decide]', root).forEach((btn) => {
       if (btn.dataset.wired) return;
       btn.dataset.wired = '1';
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const decision = btn.dataset.decide;
-        const name = btn.dataset.applicantName || 'this applicant';
-        messageDialog(
-          decision === 'accepted' ? 'accept application' : 'reject application',
-          decision === 'accepted'
-            ? 'Accept ' + name + '? They get a message and an invitation to join the organization or decline.'
-            : 'Reject ' + name + '\'s application?',
-          '<button class="btn" type="button" data-close>cancel</button>' +
-          '<button class="btn btn-primary" type="button" id="confirm-decision">' +
-          (decision === 'accepted' ? 'accept' : 'reject') + '</button>');
-        $('#confirm-decision').addEventListener('click', async () => {
-          const confirm = $('#confirm-decision');
-          confirm.disabled = true;
-          try {
-            await API.decideApplication(btn.dataset.roleid, btn.dataset.userid, decision);
-            closeModal();
-            toast(decision === 'accepted' ? 'application accepted' : 'application rejected', 'success');
-            await render();
-          } catch (err) {
-            toast(err.message, 'error');
-            if (confirm) confirm.disabled = false;
-          }
-        });
+        btn.disabled = true;
+        try {
+          await API.decideApplication(btn.dataset.roleid, btn.dataset.userid, decision);
+          toast(decision === 'accepted' ? 'application accepted' : 'application rejected', 'success');
+          await render();
+        } catch (err) {
+          toast(err.message, 'error');
+          btn.disabled = false;
+        }
       });
     });
   }
