@@ -29,10 +29,17 @@ request('POST', f'/profiles/{uid}/social_links', {'platform': 'test', 'url': 'ht
 request('POST', '/auth/register', {'login': 'bad"handle', 'email': 'bad@example.com', 'password': 'CI-only-password'}, 400)
 org = request('POST', '/organizations', {'name': 'CI audit'}, 201)
 for i in range(27):
-    request('POST', '/roles', {'organizationid': org['organizationid'], 'name': 'CI role ' + str(i)}, 201)
+    request('POST', '/roles', {'organizationid': org['organizationid'], 'name': 'CI role ' + str(i),
+        'skills': 'PHP' if i == 0 else ('PHP,JavaScript' if i == 1 else 'JavaScript')}, 201)
 page1 = request('GET', '/roles?q=CI%20role&limit=25&offset=0')
 page2 = request('GET', '/roles?q=CI%20role&limit=25&offset=24')
 assert len(page1) == 25 and len(page2) == 3
 assert page1[24]['roleid'] == page2[0]['roleid']
 assert request('GET', '/roles?q=CI%20role&skill=nonexistent-ci-skill&limit=25') == []
 print('PASS: live API validation, safe URLs, role pagination and server skill filter')
+
+assert len(request('GET', '/roles?q=CI%20role&skill=PHP&limit=1')) == 1
+assert len(request('GET', '/roles?q=CI%20role&skill=PHP')) == 2
+assert len(request('GET', '/roles?q=CI%20role&skill=PHP,JavaScript&skillMode=all')) == 1
+assert len(request('GET', '/roles?q=CI%20role&skill=PHP,JavaScript&skillMode=any')) == 27
+print('PASS: role skill any/all filters run before pagination')
