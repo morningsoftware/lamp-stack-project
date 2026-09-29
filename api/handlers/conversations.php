@@ -89,6 +89,15 @@ respond(404, ['error' => 'Not found']);
  * @param int $userid
  */
 function listConversations($db, $userid) {
+    $etag = conversationEtag($db, $userid);
+    header('ETag: "' . $etag . '"');
+
+    $inm = isset($_SERVER['HTTP_IF_NONE_MATCH']) ? trim(trim($_SERVER['HTTP_IF_NONE_MATCH']), '"') : '';
+    if ($inm !== '' && $inm === (string) $etag) {
+        http_response_code(304);
+        exit;
+    }
+
     $stmt = $db->prepare(
         "SELECT c.conversationid, c.name, c.last_message_at,
                 (SELECT m.body FROM messages m
@@ -136,6 +145,28 @@ function listConversations($db, $userid) {
     }
 
     respond(200, ['data' => $conversations]);
+}
+
+/**
+ * Cheap change signal for the conversation list: the number of conversations
+ * plus the highest message id among them. Used for conditional (304) polling.
+ *
+ * @param PDO $db
+ * @param int $userid
+ * @return string
+ */
+function conversationEtag($db, $userid) {
+    $stmt = $db->prepare(
+        'SELECT
+           (SELECT COUNT(*) FROM conversation_participants WHERE userid = :me1) AS conv_count,
+           (SELECT COALESCE(MAX(m.messageid), 0)
+              FROM messages m
+              JOIN conversation_participants cp ON cp.conversationid = m.conversationid
+             WHERE cp.userid = :me2) AS max_msg'
+    );
+    $stmt->execute([':me1' => $userid, ':me2' => $userid]);
+    $row = $stmt->fetch();
+    return (int) $row['conv_count'] . ':' . (int) $row['max_msg'];
 }
 
 /**
@@ -386,6 +417,7 @@ function listMessages($db, $conversationid, $userid) {
     $limit  = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
     $limit  = max(1, min(100, $limit));
     $before = isset($_GET['before']) ? (int) $_GET['before'] : 0;
+    $since  = isset($_GET['since']) ? (int) $_GET['since'] : 0;
 
     $sql = 'SELECT m.messageid, m.sender_userid, m.body, m.created_at,
                    m.roleid, m.organizationid,
@@ -402,18 +434,25 @@ function listMessages($db, $conversationid, $userid) {
             WHERE m.conversationid = :cid';
     $params = [':cid' => $conversationid];
 
-    if ($before > 0) {
-        $sql .= ' AND m.messageid < :before';
-        $params[':before'] = $before;
+    if ($since > 0) {
+        $sql .= ' AND m.messageid > :since ORDER BY m.messageid ASC';
+        $params[':since'] = $since;
+    } else {
+        if ($before > 0) {
+            $sql .= ' AND m.messageid < :before';
+            $params[':before'] = $before;
+        }
+        $sql .= ' ORDER BY m.messageid DESC LIMIT :limit';
     }
-    $sql .= ' ORDER BY m.messageid DESC LIMIT :limit';
 
     try {
         $stmt = $db->prepare($sql);
         foreach ($params as $key => $value) {
             $stmt->bindValue($key, $value, PDO::PARAM_INT);
         }
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        if ($since <= 0) {
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        }
         $stmt->execute();
         $rows = $stmt->fetchAll();
     } catch (PDOException $e) {
@@ -431,21 +470,29 @@ function listMessages($db, $conversationid, $userid) {
                   JOIN users u ON u.userid = m.sender_userid
                   LEFT JOIN github_profiles gp ON gp.userid = u.userid
                   WHERE m.conversationid = :cid';
-        if ($before > 0) {
-            $plain .= ' AND m.messageid < :before';
+        if ($since > 0) {
+            $plain .= ' AND m.messageid > :since ORDER BY m.messageid ASC';
+        } else {
+            if ($before > 0) {
+                $plain .= ' AND m.messageid < :before';
+            }
+            $plain .= ' ORDER BY m.messageid DESC LIMIT :limit';
         }
-        $plain .= ' ORDER BY m.messageid DESC LIMIT :limit';
         $stmt = $db->prepare($plain);
         $stmt->bindValue(':cid', $conversationid, PDO::PARAM_INT);
-        if ($before > 0) {
-            $stmt->bindValue(':before', $before, PDO::PARAM_INT);
+        if ($since > 0) {
+            $stmt->bindValue(':since', $since, PDO::PARAM_INT);
+        } else {
+            if ($before > 0) {
+                $stmt->bindValue(':before', $before, PDO::PARAM_INT);
+            }
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         }
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         $rows = $stmt->fetchAll();
     }
 
-    $messages = array_map('shapeSharedMessage', array_reverse($rows));
+    $messages = array_map('shapeSharedMessage', $since > 0 ? $rows : array_reverse($rows));
     respond(200, ['data' => $messages]);
 }
 

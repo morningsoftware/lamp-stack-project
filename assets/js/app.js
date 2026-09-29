@@ -118,6 +118,11 @@
   let profileMenuBound = false;
   const isLoggedIn = () => !!state.user;
   let messagesPollTimer = null;
+  let pollInFlight = false;
+  let pollEpoch = 0;
+  let messagesPollingActive = false;
+  let activeConversationId = null;
+  let convoEtag = null;
   let lastThreadMessageId = 0;
 
   /* ---------------- Avatars ---------------- */
@@ -1864,32 +1869,67 @@
   }
 
   function stopMessagesPolling() {
+    pollEpoch++;
+    messagesPollingActive = false;
+    pollInFlight = false;
     if (messagesPollTimer) {
-      clearInterval(messagesPollTimer);
+      clearTimeout(messagesPollTimer);
       messagesPollTimer = null;
     }
   }
 
   function startMessagesPolling(conversationid) {
     stopMessagesPolling();
-    messagesPollTimer = setInterval(() => pollMessages(conversationid), 5000);
+    messagesPollingActive = true;
+    activeConversationId = conversationid;
+    scheduleMessagesPoll();
+  }
+
+  function scheduleMessagesPoll() {
+    if (!messagesPollingActive) return;
+    if (document.visibilityState !== 'visible') return;
+    if (messagesPollTimer) clearTimeout(messagesPollTimer);
+    messagesPollTimer = setTimeout(() => pollMessages(activeConversationId), 5000);
   }
 
   async function pollMessages(conversationid) {
+    if (pollInFlight) return;
+    if (document.visibilityState !== 'visible') return;
+    pollInFlight = true;
+    const epoch = pollEpoch;
     try {
-      const convos = await API.conversations();
-      if (convos) {
-        state.convos = convos;
-        drawConvoList();
-      }
-      if (!conversationid) return;
-      if (String(parseHash().parts[1]) !== String(conversationid)) return;
-
-      const messages = await API.messages(conversationid) || [];
-      const latest = messages.length ? Number(messages[messages.length - 1].messageid) : 0;
-      if (latest === lastThreadMessageId) return;
-      await drawThread(conversationid, true);
+      const listChanged = await pollConversationList();
+      await pollOpenThread(conversationid);
+      if (listChanged) drawConvoList();
     } catch (e) { /* best-effort polling */ }
+    finally {
+      pollInFlight = false;
+      if (epoch === pollEpoch) scheduleMessagesPoll();
+    }
+  }
+
+  async function pollConversationList() {
+    const result = await API.conversationsIfChanged(convoEtag);
+    if (result.notModified) return false;
+    state.convos = result.data || [];
+    convoEtag = result.etag;
+    return true;
+  }
+
+  async function pollOpenThread(conversationid) {
+    if (!conversationid) return;
+    if (String(parseHash().parts[1]) !== String(conversationid)) return;
+
+    const messages = await API.messages(conversationid, { since: lastThreadMessageId }) || [];
+    if (!messages.length) return;
+    const latest = Number(messages[messages.length - 1].messageid);
+    if (latest <= lastThreadMessageId) return;
+
+    lastThreadMessageId = latest;
+    appendThreadMessages(conversationid, messages);
+    await API.markRead(conversationid).catch(() => {});
+    const convo = state.convos.find((c) => Number(c.conversationid) === Number(conversationid));
+    if (convo) convo.unreadCount = 0;
   }
 
   async function viewMessages(root, conversationid) {
@@ -1905,7 +1945,9 @@
 
     $('#new-msg-top').addEventListener('click', openNewMessageModal);
 
-    state.convos = await API.conversations() || [];
+    const list = await API.conversationsIfChanged(null);
+    state.convos = list.data || [];
+    convoEtag = list.etag;
     drawConvoList();
 
     if (conversationid) {
@@ -1946,6 +1988,26 @@
     await drawThread(conversationid);
   }
 
+  function messageBubbles(messages, isGroup) {
+    return messages.length
+      ? messages.map((m) => {
+          const mine = Number(m.sender_userid) === state.user.userid;
+          const sender = m.sender_displayname || m.sender_login || '';
+          return '<div class="bubble' + (mine ? ' me' : '') + '">' +
+            (!mine && isGroup ? '<span class="bubble-sender">' + escapeHtml(sender) + '</span>' : '') +
+            '<div>' + escapeHtml(m.body) + '</div>' + shareCardHtml(m.share) + '</div>';
+        }).join('')
+      : '';
+  }
+
+  function appendThreadMessages(conversationid, messages) {
+    const body = $('#thread-body');
+    if (!body || !messages.length) return;
+    const convo = state.convos.find((c) => Number(c.conversationid) === Number(conversationid));
+    body.insertAdjacentHTML('beforeend', messageBubbles(messages, convo ? convo.isGroup : false));
+    body.scrollTop = body.scrollHeight;
+  }
+
   async function drawThread(conversationid, quiet = false) {
     const thread = $('.thread');
     if (!thread) return;
@@ -1963,20 +2025,13 @@
     const participantIds = others.map((p) => p.userid);
 
     const messages = await API.messages(conversationid) || [];
-    if (messages.length) lastThreadMessageId = Number(messages[messages.length - 1].messageid);
+    lastThreadMessageId = messages.length ? Number(messages[messages.length - 1].messageid) : 0;
     await API.markRead(conversationid).catch(() => {});
     const idx = state.convos.indexOf(convo);
     if (idx >= 0) state.convos[idx].unreadCount = 0;
 
-    const bubbles = messages.length
-      ? messages.map((m) => {
-          const mine = Number(m.sender_userid) === state.user.userid;
-          const sender = m.sender_displayname || m.sender_login || '';
-          return '<div class="bubble' + (mine ? ' me' : '') + '">' +
-            (!mine && isGroup ? '<span class="bubble-sender">' + escapeHtml(sender) + '</span>' : '') +
-            '<div>' + escapeHtml(m.body) + '</div>' + shareCardHtml(m.share) + '</div>';
-        }).join('')
-      : '<div class="empty"><p class="muted">no messages yet. say hello!</p></div>';
+    const bubbles = messageBubbles(messages, isGroup) ||
+      '<div class="empty"><p class="muted">no messages yet. say hello!</p></div>';
 
     const subtitle = isGroup
       ? (others.length + 1) + ' people'
@@ -3289,6 +3344,17 @@
   window.addEventListener('maintenance-mode', () => {
     state.maintenance = true;
     renderMaintenance();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      if (messagesPollTimer) {
+        clearTimeout(messagesPollTimer);
+        messagesPollTimer = null;
+      }
+    } else if (messagesPollingActive) {
+      pollMessages(activeConversationId);
+    }
   });
 
   (async function init() {
