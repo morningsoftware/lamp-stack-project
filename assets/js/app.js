@@ -867,8 +867,8 @@
     try {
       if (resource === 'home') return await viewHome(root, query);
       if (resource === 'oauth') return handleOauthCallback(root, query);
-      if (resource === 'dev') return await viewProfile(root, parts[1]);
-      if (resource === 'u') return await resolveByLogin(root, parts[1]);
+      if (resource === 'dev') return await viewProfile(root, decodeURIComponent(parts[1]));
+      if (resource === 'u') return await resolveByLogin(root, decodeURIComponent(parts[1]));
       if (resource === 'browse') return await viewBrowse(root, query);
       if (resource === 'following' || resource === 'contacts') return await viewFollowing(root, query);
       if (resource === 'compare') return await viewCompare(root, query);
@@ -1133,6 +1133,10 @@
     const sort = $('#sort-wrap');
     if (suggestions) suggestions.classList.toggle('hidden', rolesOnly);
     if (sort) sort.classList.toggle('hidden', rolesOnly);
+    ['f-languages', 'f-roles', 'f-location', 'f-minstars', 'f-following'].forEach(id => {
+      const control = document.getElementById(id);
+      if (control) control.closest('.filter-group').classList.toggle('hidden', rolesOnly);
+    });
   }
 
 
@@ -1255,9 +1259,9 @@
       '<div class="filter-group"><div class="filter-title">languages</div><div id="f-languages"></div></div>' +
       '<div class="filter-group"><div class="filter-title">roles</div><div id="f-roles"></div></div>' +
       '<div class="filter-group"><div class="filter-title">location</div>' +
-      '<input class="input" id="f-location" placeholder="e.g. Orlando" value="' + escapeHtml(f.location) + '"></div>' +
+      '<input class="input" id="f-location" aria-label="location" placeholder="e.g. Orlando" value="' + escapeHtml(f.location) + '"></div>' +
       '<div class="filter-group"><div class="filter-title">minimum stars</div>' +
-      '<input class="input" id="f-minstars" type="number" min="0" value="' + escapeHtml(f.minStars) + '"></div>' +
+      '<input class="input" id="f-minstars" aria-label="minimum stars" type="number" min="0" value="' + escapeHtml(f.minStars) + '"></div>' +
       '<div class="filter-group"><label class="check"><input type="checkbox" id="f-following"' + (f.following ? ' checked' : '') + '> only following</label></div>';
 
     createMultiSelect($('#f-skills'), (facets.skills || []).map((s) => s.name), f.skills,
@@ -1311,14 +1315,14 @@
     const followLabel = dev.isFollowing ? 'following' : 'follow';
     const followCls = dev.isFollowing ? 'btn btn-sm follow-btn on' : 'btn btn-sm follow-btn';
     const actions = dev.isSelf
-      ? '<a class="btn btn-sm" href="#/dev/' + dev.login + '">view profile</a>'
-      : '<a class="btn btn-sm" href="#/dev/' + dev.login + '">view</a>' +
+      ? '<a class="btn btn-sm" href="#/dev/' + escapeHtml(encodeURIComponent(dev.login)) + '">view profile</a>'
+      : '<a class="btn btn-sm" href="#/dev/' + escapeHtml(encodeURIComponent(dev.login)) + '">view</a>' +
         '<button class="' + followCls + '" data-follow="' + dev.userid + '" data-following="' + (dev.isFollowing ? '1' : '0') + '">' +
         (dev.isFollowing ? '✓ ' + followLabel : '+ ' + followLabel) + '</button>' +
-        '<button class="btn btn-sm btn-ghost" data-message="' + dev.userid + '">' + ICON.mail + '</button>';
+        '<button class="btn btn-sm btn-ghost" aria-label="message ' + escapeHtml(displayNameOf(dev)) + '" data-message="' + dev.userid + '">' + ICON.mail + '</button>';
     return '<article class="dev-card">' +
       '<div class="dev-card-head">' + avatarHtml(dev, 'sm') +
-      '<div class="dev-card-id"><a class="dev-card-name" href="#/dev/' + dev.login + '">' + escapeHtml(displayNameOf(dev)) + '</a>' +
+      '<div class="dev-card-id"><a class="dev-card-name" href="#/dev/' + escapeHtml(encodeURIComponent(dev.login)) + '">' + escapeHtml(displayNameOf(dev)) + '</a>' +
       '<span class="dev-card-handle">@' + escapeHtml(dev.login) + '</span></div>' +
       (shared ? '<span class="badge accent" title="shared with you">' + shared + ' shared</span>' : '') +
       '</div>' +
@@ -1377,7 +1381,8 @@
  * @returns {Promise<void>}
  */
   async function loadBrowse(reset) {
-    if (browseState.loading) return;
+    if (browseState.loading && !reset) return;
+    const request = browseState.request = (browseState.request || 0) + 1;
     browseState.loading = true;
 
     const grid = $('#browse-grid');
@@ -1389,7 +1394,7 @@
       if (f.type === 'roles') {
         if (reset) grid.innerHTML = skeleton(6);
         more.innerHTML = '';
-        await loadBrowseRolesGrid();
+        await loadBrowseRolesGrid(reset, request);
         return;
       }
 
@@ -1412,6 +1417,7 @@
       };
 
       const payload = await API.profiles(params);
+      if (request !== browseState.request || !grid.isConnected) return;
       const data = payload.data || [];
       browseState.total = payload.meta ? payload.meta.total : data.length;
 
@@ -1431,9 +1437,9 @@
         $('#load-more').addEventListener('click', () => loadBrowse(false));
       }
     } catch (err) {
-      grid.innerHTML = emptyState('!', 'could not load results', err.message);
+      if (request === browseState.request && grid.isConnected) grid.innerHTML = emptyState('!', 'could not load results', err.message);
     } finally {
-      browseState.loading = false;
+      if (request === browseState.request) browseState.loading = false;
     }
   }
 
@@ -1454,27 +1460,32 @@
   }
 
 /**
- * Loads matching open roles into the browse grid.
+ * Loads a page of server-filtered roles, ignoring superseded responses.
+ *
+ * @param {boolean} reset Whether to replace the grid.
+ * @param {number} request Current browse request generation.
  *
  * @returns {Promise<void>}
  */
-  async function loadBrowseRolesGrid() {
+  async function loadBrowseRolesGrid(reset, request) {
     const grid = $('#browse-grid');
     const count = $('#browse-count');
+    const more = $('#browse-more');
     const f = browseState.filters;
-
-    const roles = await API.roles({ status: 'open', q: f.q }) || [];
-    const list = Array.isArray(roles) ? roles : [];
-    const matched = list.filter((role) => roleMatchesSkills(role, f.skills, f.skillMode));
-
-    grid.innerHTML = '';
-    if (!matched.length) {
+    const roles = await API.roles({ status: 'open', q: f.q, skill: f.skills,
+      skillMode: f.skillMode, limit: 25, offset: browseState.offset }) || [];
+    if (request !== browseState.request || !grid.isConnected) return;
+    const shown = roles.slice(0, 24);
+    if (reset) grid.innerHTML = '';
+    if (!shown.length && reset) {
       grid.innerHTML = emptyState(ICON.search, 'no roles', 'Try removing a filter or searching differently.');
-      count.textContent = '0 roles';
-      return;
+    } else grid.insertAdjacentHTML('beforeend', shown.map(roleCard).join(''));
+    browseState.offset += shown.length;
+    count.textContent = browseState.offset + ' open roles shown';
+    if (roles.length > 24) {
+      more.innerHTML = '<button class="btn" id="load-more">load more</button>';
+      $('#load-more').addEventListener('click', () => loadBrowse(false));
     }
-    grid.innerHTML = matched.map(roleCard).join('');
-    count.textContent = matched.length + ' open role' + (matched.length === 1 ? '' : 's');
     bindRoleActions(grid);
   }
 
@@ -1508,7 +1519,7 @@
     const reasons = []
       .concat((dev.sharedSkills || []).slice(0, 3))
       .concat(uniqueSharedLanguages(dev.sharedSkills, dev.sharedLanguages).slice(0, 2));
-    return '<a class="suggest-card" href="#/dev/' + dev.login + '">' +
+    return '<a class="suggest-card" href="#/dev/' + escapeHtml(encodeURIComponent(dev.login)) + '">' +
       avatarHtml(dev, 'sm') +
       '<div class="suggest-id"><b>' + escapeHtml(displayNameOf(dev)) + '</b>' +
       '<span class="faint">@' + escapeHtml(dev.login) + '</span></div>' +
@@ -1726,7 +1737,7 @@
     });
 
     const social = (profile.socialLinks || []).map((link) =>
-      '<a class="chip" href="' + escapeHtml(link.url) + '" target="_blank" rel="noopener">' +
+      '<a class="chip" href="' + escapeHtml(safeHttpUrl(link.url) || '#') + '" target="_blank" rel="noopener">' +
       ICON.link + escapeHtml(link.platform) + '</a>').join('');
     const sharedLangs = uniqueSharedLanguages(profile.sharedSkills, profile.sharedLanguages);
 
@@ -2066,7 +2077,7 @@
       '<div style="width:100%;text-align:left"><h4 class="section-title">languages</h4>' + miniLang(dev) + '</div>' +
       '<div style="width:100%;text-align:left"><h4 class="section-title">skills</h4><div class="chips">' +
       skillChips(dev.skills) + '</div></div>' +
-      '<a class="btn btn-sm" href="#/dev/' + dev.login + '">view profile</a>' +
+      '<a class="btn btn-sm" href="#/dev/' + escapeHtml(encodeURIComponent(dev.login)) + '">view profile</a>' +
       '</div>';
 
     const totalStarsBoth = (devA.totalStars || 0) + (devB.totalStars || 0);
@@ -2898,8 +2909,8 @@
     const draw = () => {
       $('#link-rows').innerHTML = links.length ? links.map((l) =>
         '<div class="link-edit-row">' +
-        '<a class="skill-edit-name ellipsis" href="' + escapeHtml(l.url) + '" target="_blank" rel="noopener">' + escapeHtml(l.platform) + '</a>' +
-        '<span class="mono faint ellipsis">' + escapeHtml(l.url) + '</span>' +
+        '<a class="skill-edit-name ellipsis" href="' + escapeHtml(safeHttpUrl(l.url) || '#') + '" target="_blank" rel="noopener">' + escapeHtml(l.platform) + '</a>' +
+        '<span class="mono faint ellipsis">' + escapeHtml(safeHttpUrl(l.url) || '#') + '</span>' +
         '<button class="btn btn-sm btn-ghost remove-btn" data-remove="' + l.linkid + '" title="remove link">' + ICON.x + '</button>' +
         '</div>').join('') : '<span class="empty-inline">no links yet.</span>';
 
@@ -3179,7 +3190,7 @@
           '<td>' + (u.githubUsername ? escapeHtml(u.githubUsername) : '<span class="faint">—</span>') + '</td>' +
           '<td>' + (u.isActive ? 'active' : 'disabled') + '</td>' +
           '<td class="row-actions">' +
-          '<a class="btn btn-sm btn-ghost" href="#/dev/' + u.login + '">view</a>' +
+          '<a class="btn btn-sm btn-ghost" href="#/dev/' + escapeHtml(encodeURIComponent(u.login)) + '">view</a>' +
           '<a class="btn btn-sm" href="#/admin?tab=contacts&amp;userid=' + u.userid + '">contacts</a>' +
           '<button class="btn btn-sm" data-password="' + u.userid + '">change password</button>' +
           '<button class="btn btn-sm" data-reset="' + u.userid + '">reset link</button>' +

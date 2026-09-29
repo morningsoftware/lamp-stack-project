@@ -666,3 +666,15 @@ input[readonly] { background:var(--surface-2); color:var(--muted); }
   background: var(--bg); color: var(--text); font-size: 13px;
 }
 .bubble.me .share-card { background: var(--surface); }
+
+@media (max-width: 1050px) {
+  .nav-inner { height:auto; min-height:56px; flex-wrap:wrap; gap:12px; padding:12px 16px; }
+  .nav-brand-group { flex-wrap:wrap; gap:12px; min-width:0; width:100%; }
+  .nav-links { flex-wrap:wrap; }
+  .nav-actions { width:100%; margin-left:0; min-width:0; flex-wrap:wrap; }
+  .nav-search { flex:1 1 150px; min-width:0; }
+  .nav-search .search-input { width:100%; min-width:0; }
+  #profile-slot { min-width:0; max-width:100%; }
+  .profile-chip { min-width:0; }
+  .profile-chip-text { max-width:120px; overflow:hidden; }
+}

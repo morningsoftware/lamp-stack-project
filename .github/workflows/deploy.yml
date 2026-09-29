@@ -1,24 +1,87 @@
 name: Deploy to DigitalOcean
 
 on:
+  pull_request:
   push:
-    branches:
-      - main
-
+    branches: [main]
   workflow_dispatch:
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
 
+concurrency:
+  group: lamp-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pci-only-password"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_USER: root
+      DB_PASSWORD: ci-only-password
+      DB_NAME: ContactManagerDB
     steps:
-      - name: Deploy to DigitalOcean
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and regression tests
+        run: |
+          find api tests -name '*.php' -print0 | xargs -0 -n1 php -l
+          node --check assets/js/api.js
+          node --check assets/js/app.js
+          node tests/session-tabs.cjs
+          node tests/browse-regression.cjs
+          php tests/oauth-state.php
+          php tests/contact-validation.php
+          php tests/profile-validation.php
+      - name: Isolated database and API smoke test
+        env:
+          MYSQL_PWD: ci-only-password
+        run: |
+          mysql -h 127.0.0.1 -u root < resetdb.sql
+          php -S 127.0.0.1:8088 -t . > /tmp/lamp-php.log 2>&1 &
+          for attempt in $(seq 1 20); do
+            curl --fail --silent http://127.0.0.1:8088/api/index.php/ping && break
+            sleep 1
+          done
+          python3 tests/api-smoke.py
+
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy tested revision to DigitalOcean
         uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          envs: DEPLOY_SHA
           script: |
+            set -eu
             cd /var/www/html
-            git fetch origin
-            git reset --hard origin/main
+            git fetch origin main
+            previous=$(git rev-parse HEAD)
+            git reset --hard "$DEPLOY_SHA"
+            if ! curl --fail --silent https://lamp.morning.codes/api/index.php/ping | grep -q '"status":"OK"'; then
+              git reset --hard "$previous"
+              exit 1
+            fi

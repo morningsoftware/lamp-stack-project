@@ -297,3 +297,12 @@ Give every function in the API surface — `api/handlers/`, `api/config/`, and t
 - **MySQL `CHECK` constraints can't reference FK columns with a referential action.** This is why `chk_messages_one_share` (a CHECK on `roleid`/`organizationid`) was removed — the "share a role *or* an organization, not both" rule is enforced in the API (`messageShareTarget()` in `conversations.php`) instead.
 - **Messaging is client-side polling (5s), not real-time/websockets.** A self-scheduling timer re-fetches only while the messages view is active and the tab is visible; the conversation list is fetched conditionally (`ETag`/`If-None-Match` → 304) and the open thread fetches only new messages (`?since=<id>`). `cache: 'no-store'` is set on API fetches to avoid stale responses.
 - **Maintenance mode**: dropping a `MAINTENANCE_MODE=true` value in `.env` makes `api/index.php` return a 503 with `{"maintenance":true}`; the SPA shows a maintenance screen. Toggle via `.env`, not a flag file.
+
+## Audit regression safeguards
+
+- `api/config/validation.php` validates typed UTF-8 profile fields, new usernames and absolute HTTP(S) URLs. Existing unsafe social URLs are also neutralized when rendered. Encode handles in URL components and escape attributes; tag stripping is not attribute escaping.
+- Browse responses use a request generation and connected-view guard. Role skills are filtered by SQL before stable `limit`/`offset` pagination. Hide developer-only filters in role mode.
+- `.github/workflows/deploy.yml` runs syntax, OAuth, contact, profile, session and browse regressions, then an isolated MySQL/PHP API smoke test. Deployment depends on verification, resets to the tested SHA, and rolls back when the public ping check fails. The reset seed is used only in the disposable CI database.
+- Node is a CI test tool, not an application runtime or dev server. Production remains Apache/PHP/MySQL with vanilla JavaScript.
+- Run `node tests/browse-regression.cjs` and `php tests/profile-validation.php` in addition to existing tests. `tests/api-smoke.py` targets only an isolated local API at port 8088.
+- Bump the asset query version in `index.html` when releasing frontend behavior changes so cached tabs load consistent files after refresh.

@@ -104,7 +104,21 @@ function listRoles($db, $userid) {
         $params[':q_org'] = $like;
         $params[':q_desc'] = $like;
     }
-    $sql .= ' ORDER BY r.status = \'open\' DESC, r.created_at DESC LIMIT 100';
+    $skills = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) ($_GET['skill'] ?? ''))))));
+    if ($skills) {
+        $holders = [];
+        foreach ($skills as $i => $skill) {
+            $holders[] = ':skill' . $i;
+            $params[':skill' . $i] = $skill;
+        }
+        $sql .= ' AND (SELECT COUNT(DISTINCT s.skillid) FROM role_skills rs JOIN skills s ON s.skillid=rs.skillid WHERE rs.roleid=r.roleid AND s.name IN (' . implode(',', $holders) . '))';
+        $sql .= ($_GET['skillMode'] ?? '') === 'all' ? ' = ' . count($skills) : ' > 0';
+    }
+    $limit = max(1, min(100, (int) ($_GET['limit'] ?? 100)));
+    $offset = max(0, (int) ($_GET['offset'] ?? 0));
+    $sql .= " ORDER BY r.status = 'open' DESC, r.created_at DESC, r.roleid DESC LIMIT :limit OFFSET :offset";
+    $params[':limit'] = $limit;
+    $params[':offset'] = $offset;
 
     try {
         $stmt = $db->prepare($sql);

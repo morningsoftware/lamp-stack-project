@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/helpers.php';
+require_once __DIR__ . '/../config/validation.php';
 
 $db       = getDB();
 requireAuth();
@@ -737,13 +738,14 @@ function updateProfile($db, $userid) {
         'resume'      => 'resumeUrl',
     ];
 
+    $limits = ['firstName' => 50, 'lastName' => 50, 'displayName' => 100, 'bio' => 10000, 'location' => 100, 'jobTitle' => 100, 'resumeUrl' => 255];
     $sets = [];
     $params = [':userid' => $userid];
 
     foreach ($columns as $column => $field) {
         if (array_key_exists($field, $body)) {
             $sets[] = "{$column} = :{$field}";
-            $params[":{$field}"] = clean($body[$field]);
+            $params[":{$field}"] = $field === 'resumeUrl' ? validatedWebUrl($body[$field], 255, true) : validatedText($body[$field], $limits[$field], $field);
         }
     }
 
@@ -962,8 +964,8 @@ function createSocialLink($db, $userid) {
     );
     $stmt->execute([
         ':userid'        => $userid,
-        ':platform'      => clean($body['platform']),
-        ':url'           => clean($body['url']),
+        ':platform'      => validatedText($body['platform'], 50, 'Platform'),
+        ':url'           => validatedWebUrl($body['url']),
         ':display_order' => isset($body['displayOrder']) ? (int) $body['displayOrder'] : 0,
     ]);
 
@@ -984,7 +986,7 @@ function updateSocialLink($db, $userid, $linkId) {
     foreach (['platform' => 'platform', 'url' => 'url'] as $column => $field) {
         if (array_key_exists($field, $body)) {
             $sets[] = "{$column} = :{$field}";
-            $params[":{$field}"] = clean($body[$field]);
+            $params[":{$field}"] = $field === 'url' ? validatedWebUrl($body[$field]) : validatedText($body[$field], 50, 'Platform');
         }
     }
     if (array_key_exists('displayOrder', $body)) {
