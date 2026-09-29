@@ -251,8 +251,45 @@ Staleness is governed by `GITHUB_REFRESH_HOURS` (default 24). GitHub commit acti
 - **Keep `AGENTS.md` up to date.** Any change that alters architecture, adds/renames/removes a file or directory, introduces a new convention or helper, or modifies the schema or a workflow **must** update this file in the same change. If `AGENTS.md` drifts from the codebase, it misleads both humans and agents.
 - **Branch workflow**: feature branches off `main`; open a PR to merge. **Pushing to `main` triggers an automatic deploy** to the production droplet (`.github/workflows/deploy.yml`), so never commit directly to `main`.
 - **Commits**: small, focused, one logical change each. Use a short imperative subject in lowercase (matching existing history, e.g. `add maintenance mode`, `add member button alignment`), with an optional blank-line-separated body explaining *why* when non-obvious. When adding a feature, begin the commit with `feat:`, when commiting a fix, start with `fix:`. Always make commits for your changes when in build mode. 
-- **Comments**: the codebase is intentionally sparse on comments. Don't add explanatory comments to code; a comment is only warranted for a non-obvious invariant or a "why" that isn't clear from the code.
+- **Comments**: the codebase is intentionally sparse on *inline* comments. Don't add explanatory comments to code; an inline comment is only warranted for a non-obvious invariant or a "why" that isn't clear from the code. Functions are documented per the **Function doc comments** scheme below.
 - **Style**: follow the design language in §4 and the casing rules; don't introduce new utility classes when an existing primitive fits.
+
+### Function doc comments
+
+Give every function in the API surface — `api/handlers/`, `api/config/`, and the view/helper functions in `assets/js/` — a short doc comment describing what it does, its parameters, and its return value. The description is one or two sentences; the tags carry the details.
+
+**PHP** (PHPDoc):
+
+```
+/**
+ * Lists the current user's conversations with last message and unread count.
+ *
+ * @param PDO $db
+ * @param int $userid
+ * @return array
+ */
+```
+
+- Description: imperative or third-person, sentence case, ending with a period.
+- `@param Type $name` — one per parameter, in that order, with a brief description.
+- `@return Type` — the type and what it represents; omit for `void` functions.
+- Types: native PHP types (`int`, `string`, `bool`, `array`, `mixed`), `PDO`, or a class name.
+
+**JavaScript** (JSDoc):
+
+```
+/**
+ * Renders the developer cards for the browse grid.
+ *
+ * @param {Array<Object>} developers The profiles to render.
+ * @returns {string} The card HTML.
+ */
+```
+
+- Description: same rules as PHP.
+- `@param {Type} name` — type in braces (`{string}`, `{number}`, `{HTMLElement}`, `{Array<Object>}`).
+- `@returns {Type}` — the type and what it represents; omit for `void`.
+- Trivial one-liners (getters, passthroughs) may skip the doc comment.
 
 ## 11. Gotchas
 
