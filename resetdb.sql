@@ -356,8 +356,8 @@ VALUES
 INSERT INTO users
   (loginuid, email, password, firstname, lastname, displayname, isadmin)
 VALUES
-  ('admin', 'admin@collab.dev', '$2y$12$9OPzwajcZv09qf6vNYY7MuC4q7zyHaFPeWf8rGUN/9fnC2aaFZeL6',
-   'Site', 'Admin', 'Site Admin', 1);
+  ('root', 'admin@collab.dev', '$2y$12$9OPzwajcZv09qf6vNYY7MuC4q7zyHaFPeWf8rGUN/9fnC2aaFZeL6',
+   'Application', 'Administrator', 'Application Administrator', 1);
 
 SET @jane = (SELECT userid FROM users WHERE loginuid = 'jdoe');
 SET @alex = (SELECT userid FROM users WHERE loginuid = 'asmith');

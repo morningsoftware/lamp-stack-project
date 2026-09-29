@@ -577,7 +577,7 @@ function organizationFail($e, $fallback) {
         || strpos($detail, 'decision') !== false
         || strpos($detail, 'decided_by') !== false;
     if ($needsDecision) {
-        respond(503, ['error' => 'Application decisions are not installed yet. Run migrate_applications.sql on the database.']);
+        respond(503, ['error' => 'Application decisions are not installed yet. Run migrate.sql on the database.']);
     }
     if ($missing) {
         respond(503, ['error' => 'Organization tables are not installed yet. Run migrate.sql on the database.']);

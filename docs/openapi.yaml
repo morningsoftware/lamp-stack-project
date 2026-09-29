@@ -1,0 +1,82 @@
+openapi: 3.0.3
+info:
+  title: collab.dev demonstration API
+  version: 1.0.0
+  description: Selected live endpoints for the LAMP presentation. Use a dedicated demo account.
+servers:
+  - url: https://lamp.morning.codes/api/index.php
+paths:
+  /ping:
+    get:
+      summary: Check API health
+      responses:
+        '200':
+          description: API is available
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: OK
+  /auth/login:
+    post:
+      summary: Sign in with a username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [login, password]
+              properties:
+                login:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Signed in; data contains token, userid, login, email and isAdmin
+        '401':
+          description: Invalid login or password
+        '403':
+          description: Account disabled
+  /contacts:
+    get:
+      summary: Search the signed-in user's contacts with partial SQL matching
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Partial name, email, phone or notes
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Contact data array and total, page, limit metadata
+        '401':
+          description: Authentication required
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

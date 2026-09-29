@@ -11,6 +11,7 @@
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/helpers.php';
 require_once __DIR__ . '/../config/oauth.php';
+require_once __DIR__ . '/../config/oauth-state.php';
 
 $db       = getDB();
 $segments = pathSegments();
@@ -56,7 +57,7 @@ function oauthSetCookie($name, $value, $ttl = 0) {
  */
 function oauthStart() {
     $state = 'login:' . bin2hex(random_bytes(16));
-    oauthSetCookie('oauth_state', $state, 600);
+    oauthRemember($state);
 
     header('Location: ' . githubOAuthAuthorizeUrl($state));
     exit;
@@ -70,8 +71,7 @@ function oauthConnect() {
     $userid = requireAuth();
     $state  = 'connect:' . bin2hex(random_bytes(16));
 
-    oauthSetCookie('oauth_state', $state, 600);
-    oauthSetCookie('oauth_userid', (string) $userid, 600);
+    oauthRemember($state, $userid);
 
     respond(200, ['data' => ['url' => githubOAuthAuthorizeUrl($state)]]);
 }
@@ -106,8 +106,8 @@ function oauthCallback($db) {
     $code  = (string) ($_GET['code'] ?? '');
     $mode  = str_starts_with($state, 'connect:') ? 'connect' : 'login';
 
-    $cookieState = (string) ($_COOKIE['oauth_state'] ?? '');
-    if ($state === '' || $cookieState === '' || !hash_equals($cookieState, $state)) {
+    $pending = oauthConsume($state);
+    if ($pending === null) {
         oauthFail($mode, 'The sign-in request expired or was invalid. Please try again.');
     }
 
@@ -125,7 +125,12 @@ function oauthCallback($db) {
     }
 
     if ($mode === 'connect') {
-        $userid = (int) ($_COOKIE['oauth_userid'] ?? 0);
+        $userid = (int) ($pending['userid'] ?? 0);
+        $session = $db->prepare('SELECT s.userid FROM sessions s JOIN users u ON u.userid = s.userid WHERE s.token_hash = :hash AND s.expires_at > NOW() AND u.isactive = 1');
+        $session->execute([':hash' => $pending['session_hash'] ?? '']);
+        if ((int) $session->fetchColumn() !== $userid) {
+            oauthFail($mode, 'Please sign in again before connecting GitHub.');
+        }
         if ($userid <= 0) {
             oauthFail($mode, 'Could not identify the account to link. Please try again.');
         }
@@ -139,6 +144,8 @@ function oauthCallback($db) {
 
         try {
             linkGithubAccount($db, $userid, $ghUser);
+        } catch (DomainException $e) {
+            oauthFail($mode, $e->getMessage());
         } catch (RuntimeException $e) {
             error_log('GitHub OAuth link failed: ' . $e->getMessage());
             oauthFail($mode, 'Could not link your GitHub account. Please try again.');
@@ -153,6 +160,8 @@ function oauthCallback($db) {
     // Sign in / sign up.
     try {
         $userid = findOrCreateOAuthUser($db, $ghUser);
+    } catch (DomainException $e) {
+        oauthFail($mode, $e->getMessage());
     } catch (RuntimeException $e) {
         error_log('GitHub OAuth sign-in failed: ' . $e->getMessage());
         oauthFail($mode, 'Could not sign in with GitHub. Please try again.');
@@ -179,6 +188,12 @@ function oauthCallback($db) {
  */
 function oauthDisconnect($db) {
     $userid = requireAuth();
+
+    $check = $db->prepare('SELECT password FROM users WHERE userid = :userid');
+    $check->execute([':userid' => $userid]);
+    if (!$check->fetchColumn()) {
+        respond(409, ['error' => 'Set a password through an administrator before disconnecting your only sign-in method.']);
+    }
 
     $stmt = $db->prepare('DELETE FROM github_profiles WHERE userid = :userid');
     $stmt->execute([':userid' => $userid]);
