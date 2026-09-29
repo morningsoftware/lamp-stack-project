@@ -1,0 +1,25 @@
+info:
+  name: Add member
+  type: http
+  seq: 95
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/organizations/{{process.env.TEST_ORG_SLUG}}/members"
+  body:
+    type: json
+    json: |
+      {
+        "login": "{{process.env.TEST_MEMBER_LOGIN}}"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 201

@@ -1,0 +1,19 @@
+info:
+  name: Unfollow
+  type: http
+  seq: 32
+
+http:
+  method: DELETE
+  url: "{{urlBase}}/api/index.php/profiles/{{process.env.TEST_USERID2}}/follow"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

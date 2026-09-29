@@ -1,0 +1,26 @@
+info:
+  name: Add social link
+  type: http
+  seq: 28
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/profiles/{{process.env.TEST_USERID}}/social_links"
+  body:
+    type: json
+    json: |
+      {
+        "platform": "website",
+        "url": "https://example.com"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 201

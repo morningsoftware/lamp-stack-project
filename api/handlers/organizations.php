@@ -384,7 +384,7 @@ function organizationRoles($db, $organizationid, $userid) {
             'name'           => $row['name'],
             'description'    => $row['description'],
             'status'         => $row['status'],
-            'statusLabel'    => $row['status'] === 'open' ? 'Accepting applications' : 'Closed',
+            'statusLabel'    => $row['status'] === 'open' ? 'accepting applications' : 'closed',
             'createdAt'      => $row['created_at'],
             'closedAt'       => $row['closed_at'],
             'applicantCount' => (int) $row['applicant_count'],
@@ -580,7 +580,7 @@ function organizationFail($e, $fallback) {
         respond(503, ['error' => 'Application decisions are not installed yet. Run migrate_applications.sql on the database.']);
     }
     if ($missing) {
-        respond(503, ['error' => 'Organization tables are not installed yet. Run migrate_organizations.sql on the database.']);
+        respond(503, ['error' => 'Organization tables are not installed yet. Run migrate.sql on the database.']);
     }
     error_log('Organization error: ' . $e->getMessage());
     respond(500, ['error' => $fallback]);

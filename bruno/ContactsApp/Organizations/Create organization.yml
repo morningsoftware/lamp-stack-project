@@ -1,0 +1,29 @@
+info:
+  name: Create organization
+  type: http
+  seq: 92
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/organizations"
+  body:
+    type: json
+    json: |
+      {
+        "name": "Morning Software",
+        "slug": "morning-software",
+        "description": "A small software collective",
+        "location": "Remote",
+        "website": "https://example.com"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 201

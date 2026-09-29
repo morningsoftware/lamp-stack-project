@@ -1,0 +1,26 @@
+info:
+  name: Sync GitHub
+  type: http
+  seq: 62
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/github/sync"
+  body:
+    type: json
+    json: |
+      {
+        "userid": "{{process.env.TEST_USERID}}",
+        "username": "{{process.env.NEW_GITHUB}}"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

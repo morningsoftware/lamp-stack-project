@@ -1,0 +1,26 @@
+info:
+  name: Update social link
+  type: http
+  seq: 29
+
+http:
+  method: PUT
+  url: "{{urlBase}}/api/index.php/profiles/{{process.env.TEST_USERID}}/social_links/{{process.env.TEST_LINK_ID}}"
+  body:
+    type: json
+    json: |
+      {
+        "platform": "github",
+        "url": "https://github.com/example"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

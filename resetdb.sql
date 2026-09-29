@@ -34,8 +34,8 @@ DROP TABLE IF EXISTS users;
 CREATE TABLE users (
   userid      INT AUTO_INCREMENT PRIMARY KEY,
   loginuid    VARCHAR(50)  NOT NULL,
-  email       VARCHAR(255) NOT NULL,
-  password    VARBINARY(255) NOT NULL,
+  email       VARCHAR(255) DEFAULT NULL,
+  password    VARBINARY(255) DEFAULT NULL,
   firstname   VARCHAR(50)  NOT NULL,
   lastname    VARCHAR(50)  NOT NULL,
   displayname VARCHAR(100) DEFAULT NULL,
@@ -116,6 +116,7 @@ CREATE TABLE user_skills (
 CREATE TABLE github_profiles (
   githubid      INT AUTO_INCREMENT PRIMARY KEY,
   userid        INT NOT NULL,
+  github_id     BIGINT UNSIGNED NULL,
   username      VARCHAR(50) NOT NULL,
   avatar_url    VARCHAR(255),
   profile_url   VARCHAR(255),
@@ -129,6 +130,7 @@ CREATE TABLE github_profiles (
   updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_github_profiles_userid (userid),
   UNIQUE KEY uq_github_profiles_username (username),
+  UNIQUE KEY uq_github_profiles_github_id (github_id),
   CONSTRAINT fk_github_profiles_userid FOREIGN KEY (userid)
     REFERENCES users (userid) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -452,11 +454,11 @@ INSERT INTO user_skills (userid, skillid, proficiency, display_order) VALUES
   (@alex, @dock,  'intermediate', 4);
 
 INSERT INTO github_profiles
-  (userid, username, avatar_url, profile_url, bio, followers, following, public_repos, public_gists, last_synced)
+  (userid, github_id, username, avatar_url, profile_url, bio, followers, following, public_repos, public_gists, last_synced)
 VALUES
-  (@jane, 'jdoe', 'https://avatars.githubusercontent.com/u/000001',
+  (@jane, 100000001, 'jdoe', 'https://avatars.githubusercontent.com/u/000001',
    'https://github.com/jdoe', 'Building things with PHP and JS.', 42, 30, 18, 3, CURRENT_TIMESTAMP),
-  (@alex, 'asmith', 'https://avatars.githubusercontent.com/u/000002',
+  (@alex, 100000002, 'asmith', 'https://avatars.githubusercontent.com/u/000002',
    'https://github.com/asmith', 'APIs and databases.', 17, 25, 9, 1, CURRENT_TIMESTAMP);
 
 SET @janeGh = (SELECT githubid FROM github_profiles WHERE userid = @jane);

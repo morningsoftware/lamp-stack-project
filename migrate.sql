@@ -1,11 +1,24 @@
 -- ============================================================
--- Additive migration for the live ContactManagerDB.
--- Run once. It does not drop tables or rewrite existing rows.
---   mysql ContactManagerDB < migrate_organizations.sql
+-- migrate.sql — single consolidated schema migration
+--
+-- Brings an existing ContactManagerDB up to the current schema.
+-- Safe to re-run: every step is idempotent.
+--
+--   mysql -u root -p ContactManagerDB < migrate.sql
+--
+-- Applies, as needed:
+--   1. Organizations / roles / applications / invitations tables
+--      + applications.decision / decided_at / decided_by (accept/reject)
+--   2. messages.roleid / messages.organizationid (message sharing)
+--   3. github_profiles.github_id (verified GitHub OAuth identity)
+--   4. users.password / users.email nullable (OAuth accounts)
 -- ============================================================
 
 USE ContactManagerDB;
 
+-- ------------------------------------------------------------
+-- 1. Organizations, roles, applications, and invitations
+-- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS organizations (
   organizationid INT AUTO_INCREMENT PRIMARY KEY,
   name           VARCHAR(100) NOT NULL,
@@ -20,7 +33,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   UNIQUE KEY uq_organizations_slug (slug),
   CONSTRAINT fk_organizations_created_by FOREIGN KEY (created_by)
     REFERENCES users (userid) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS organization_members (
   organizationid INT NOT NULL,
@@ -33,7 +46,7 @@ CREATE TABLE IF NOT EXISTS organization_members (
     REFERENCES organizations (organizationid) ON DELETE CASCADE,
   CONSTRAINT fk_organization_members_user FOREIGN KEY (userid)
     REFERENCES users (userid) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS roles (
   roleid         INT AUTO_INCREMENT PRIMARY KEY,
@@ -50,7 +63,7 @@ CREATE TABLE IF NOT EXISTS roles (
     REFERENCES organizations (organizationid) ON DELETE CASCADE,
   CONSTRAINT fk_roles_created_by FOREIGN KEY (created_by)
     REFERENCES users (userid) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS role_skills (
   roleid  INT NOT NULL,
@@ -61,7 +74,7 @@ CREATE TABLE IF NOT EXISTS role_skills (
     REFERENCES roles (roleid) ON DELETE CASCADE,
   CONSTRAINT fk_role_skills_skill FOREIGN KEY (skillid)
     REFERENCES skills (skillid) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS applications (
   applicationid INT AUTO_INCREMENT PRIMARY KEY,
@@ -80,7 +93,7 @@ CREATE TABLE IF NOT EXISTS applications (
     REFERENCES users (userid) ON DELETE CASCADE,
   CONSTRAINT fk_applications_decided_by FOREIGN KEY (decided_by)
     REFERENCES users (userid) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS organization_invitations (
   invitationid   INT AUTO_INCREMENT PRIMARY KEY,
@@ -101,14 +114,67 @@ CREATE TABLE IF NOT EXISTS organization_invitations (
     REFERENCES roles (roleid) ON DELETE SET NULL,
   CONSTRAINT fk_invitations_invited_by FOREIGN KEY (invited_by)
     REFERENCES users (userid) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-ALTER TABLE messages
-  ADD COLUMN roleid INT NULL AFTER body,
-  ADD COLUMN organizationid INT NULL AFTER roleid,
-  ADD KEY idx_messages_roleid (roleid),
-  ADD KEY idx_messages_organizationid (organizationid),
-  ADD CONSTRAINT fk_messages_role FOREIGN KEY (roleid)
-    REFERENCES roles (roleid) ON DELETE SET NULL,
-  ADD CONSTRAINT fk_messages_organization FOREIGN KEY (organizationid)
-    REFERENCES organizations (organizationid) ON DELETE SET NULL;
+-- applications: add accept/reject decision columns (existing rows stay pending)
+SET @exists := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'applications' AND COLUMN_NAME = 'decision');
+SET @sql := IF(@exists = 0,
+  'ALTER TABLE applications
+     ADD COLUMN decision VARCHAR(20) NOT NULL DEFAULT ''pending'' AFTER userid,
+     ADD COLUMN decided_at TIMESTAMP NULL DEFAULT NULL AFTER decision,
+     ADD COLUMN decided_by INT NULL AFTER decided_at,
+     ADD KEY idx_applications_decision (decision),
+     ADD CONSTRAINT fk_applications_decided_by FOREIGN KEY (decided_by)
+       REFERENCES users (userid) ON DELETE SET NULL',
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ------------------------------------------------------------
+-- 2. messages: add share columns (roleid / organizationid)
+-- ------------------------------------------------------------
+SET @exists := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'messages' AND COLUMN_NAME = 'roleid');
+SET @sql := IF(@exists = 0,
+  'ALTER TABLE messages
+     ADD COLUMN roleid INT NULL AFTER body,
+     ADD COLUMN organizationid INT NULL AFTER roleid',
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @exists := (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'messages' AND CONSTRAINT_NAME = 'fk_messages_role');
+SET @sql := IF(@exists = 0,
+  'ALTER TABLE messages
+     ADD KEY idx_messages_roleid (roleid),
+     ADD KEY idx_messages_organizationid (organizationid),
+     ADD CONSTRAINT fk_messages_role FOREIGN KEY (roleid)
+       REFERENCES roles (roleid) ON DELETE SET NULL,
+     ADD CONSTRAINT fk_messages_organization FOREIGN KEY (organizationid)
+       REFERENCES organizations (organizationid) ON DELETE SET NULL',
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ------------------------------------------------------------
+-- 3. github_profiles: add verified github_id
+-- ------------------------------------------------------------
+SET @exists := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'github_profiles' AND COLUMN_NAME = 'github_id');
+SET @sql := IF(@exists = 0,
+  'ALTER TABLE github_profiles
+     ADD COLUMN github_id BIGINT UNSIGNED NULL AFTER userid,
+     ADD UNIQUE KEY uq_github_profiles_github_id (github_id)',
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ------------------------------------------------------------
+-- 4. users: allow password / email to be null (OAuth accounts)
+-- ------------------------------------------------------------
+SET @exists := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'password' AND IS_NULLABLE = 'YES');
+SET @sql := IF(@exists = 0,
+  'ALTER TABLE users
+     MODIFY password VARBINARY(255) DEFAULT NULL,
+     MODIFY email VARCHAR(255) DEFAULT NULL',
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

@@ -1,0 +1,29 @@
+info:
+  name: Update contact
+  type: http
+  seq: 44
+
+http:
+  method: PUT
+  url: "{{urlBase}}/api/index.php/contacts/{{process.env.TEST_CONTACT_ID}}"
+  body:
+    type: json
+    json: |
+      {
+        "firstName": "Grace",
+        "lastName": "Hopper",
+        "email": "grace@example.com",
+        "phone": "5550100",
+        "description": "admiral and compiler pioneer"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

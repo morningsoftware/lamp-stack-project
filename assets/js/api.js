@@ -27,10 +27,11 @@
       }
     },
 
-    async request(method, path, body) {
+    async request(method, path, body, options = {}) {
       const headers = {};
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       if (this.token) headers['Authorization'] = 'Bearer ' + this.token;
+      if (options.etag) headers['If-None-Match'] = options.etag;
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 30000);
@@ -39,9 +40,14 @@
           throw new Error('A secure API connection is required.');
         }
         const res = await fetch(this.base + path, {
-          method, headers, signal: controller.signal,
+          method, headers, signal: controller.signal, cache: 'no-store',
           body: body !== undefined ? JSON.stringify(body) : undefined,
         });
+
+        if (options.conditional && res.status === 304) {
+          return { notModified: true, etag: res.headers.get('ETag') };
+        }
+
         const text = await res.text();
         let payload;
         try { payload = text ? JSON.parse(text) : null; }
@@ -63,6 +69,7 @@
         if (!payload || typeof payload !== 'object' || !('data' in payload)) {
           throw new Error('The server returned an unexpected response. Please try again.');
         }
+        if (options.conditional) payload.etag = res.headers.get('ETag');
         return payload;
       } catch (err) {
         if (err.name === 'AbortError') throw new Error('The request timed out. Please try again.');
@@ -171,6 +178,12 @@
     syncGithub(options = {}) {
       return this.data('POST', '/github/sync', options);
     },
+    disconnectGithub() {
+      return this.data('POST', '/oauth/github/disconnect');
+    },
+    connectGithub() {
+      return this.data('POST', '/oauth/github/connect');
+    },
 
     /* contacts */
     contacts(params = {}) {
@@ -197,6 +210,11 @@
     /* messaging */
     conversations() {
       return this.data('GET', '/conversations');
+    },
+    async conversationsIfChanged(etag) {
+      const payload = await this.request('GET', '/conversations', undefined, { conditional: true, etag });
+      if (payload.notModified) return { notModified: true };
+      return { notModified: false, etag: payload.etag || null, data: payload.data };
     },
     conversation(conversationid) {
       return this.data('GET', '/conversations/' + conversationid);

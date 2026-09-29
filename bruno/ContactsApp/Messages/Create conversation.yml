@@ -1,0 +1,25 @@
+info:
+  name: Create conversation
+  type: http
+  seq: 73
+
+http:
+  method: POST
+  url: "{{urlBase}}/api/index.php/conversations"
+  body:
+    type: json
+    json: |
+      {
+        "recipientLogin": "{{process.env.TEST_LOGIN}}"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

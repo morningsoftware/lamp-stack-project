@@ -117,6 +117,13 @@
   const state = { user: null, profiles: [], convos: [], facets: null, maintenance: false };
   let profileMenuBound = false;
   const isLoggedIn = () => !!state.user;
+  let messagesPollTimer = null;
+  let pollInFlight = false;
+  let pollEpoch = 0;
+  let messagesPollingActive = false;
+  let activeConversationId = null;
+  let convoEtag = null;
+  let lastThreadMessageId = 0;
 
   /* ---------------- Avatars ---------------- */
 
@@ -473,7 +480,7 @@
     if (new TextEncoder().encode(data.newPassword).length > 72) throw new Error('Use a password of at most 72 bytes.');
   }
 
-  function formDialog(title, description, fields, submitLabel, onSubmit, footer = '') {
+  function formDialog(title, description, fields, submitLabel, onSubmit, footer = '', showCancel = true) {
     const host = $('#modal-root');
     if (!host.firstElementChild) modalOpener = document.activeElement;
     document.body.style.overflow = 'hidden';
@@ -482,7 +489,7 @@
       '<p class="sub" id="dialog-description">' + escapeHtml(description) + '</p>' +
       '<form id="dialog-form" class="form-grid">' + fields +
       '<p class="form-error hidden" role="alert" id="dialog-error"></p>' +
-      '<div class="dialog-actions"><button class="btn" type="button" data-close>cancel</button>' +
+      '<div class="dialog-actions">' + (showCancel ? '<button class="btn" type="button" data-close>cancel</button>' : '') +
       '<button class="btn btn-primary" type="submit">' + escapeHtml(submitLabel) + '</button></div></form>' + footer + '</section></div>';
     const form = $('#dialog-form');
     const error = $('#dialog-error');
@@ -526,9 +533,7 @@
     const registering = mode === 'register';
     const fields = field('login', registering ? 'username' : 'username or email', {required:true, maxlength:registering ? 50 : 255, minlength:registering ? 3 : 1, autocomplete:'username'}) +
       (registering ? field('email','email',{type:'email',required:true,maxlength:255,autocomplete:'email'}) +
-        '<div class="form-columns">' + field('firstName','first name',{maxlength:50,autocomplete:'given-name'}) + field('lastName','last name',{maxlength:50,autocomplete:'family-name'}) + '</div>' +
-        field('githubUsername','GitHub username',{required:true,maxlength:39,'aria-describedby':'github-help'}) +
-        '<p class="form-hint" id="github-help">Use a GitHub account you own that is not already linked to another account.</p>' + passwordFields() :
+        '<div class="form-columns">' + field('firstName','first name',{maxlength:50,autocomplete:'given-name'}) + field('lastName','last name',{maxlength:50,autocomplete:'family-name'}) + '</div>' + passwordFields() :
         field('password','password',{type:'password',required:true,autocomplete:'current-password'}));
     formDialog(registering ? 'create account' : 'sign in', registering ? 'Keep your contacts together and connect with your team.' : 'Welcome back. Sign in to manage your contacts.', fields,
       registering ? 'create account' : 'sign in', async data => {
@@ -549,9 +554,13 @@
         renderProfileSlot();
         await render();
         toast(registering ? 'Account created. You are signed in.' : 'welcome back','success');
-      }, '<p class="auth-switch">' + (registering ? 'Already have an account?' : 'New here?') +
-      ' <button class="text-button" type="button" id="auth-switch">' + (registering ? 'sign in' : 'create account') + '</button></p>');
+      }, '<div class="oauth-divider"><span>or</span></div>' +
+      '<button class="btn btn-ghost" type="button" id="github-login-btn" style="width:100%">' + ICON.github + ' continue with GitHub</button>' +
+      '<p class="auth-switch">' + (registering ? 'Already have an account?' : 'New here?') +
+      ' <button class="text-button" type="button" id="auth-switch">' + (registering ? 'sign in' : 'create account') + '</button></p>', false);
     $('#auth-switch').addEventListener('click', () => openAuthModal(registering ? 'login' : 'register'));
+    const ghBtn = $('#github-login-btn');
+    if (ghBtn) ghBtn.addEventListener('click', () => { location.href = API.base + '/oauth/github'; });
   }
 
   function messageDialog(title, text, actions) {
@@ -607,6 +616,7 @@
 
   async function render() {
     if (state.maintenance) { renderMaintenance(); return; }
+    stopMessagesPolling();
     const { parts, query } = parseHash();
     const root = $('#app');
     const resource = parts[0] || 'home';
@@ -620,6 +630,7 @@
 
     try {
       if (resource === 'home') return await viewHome(root, query);
+      if (resource === 'oauth') return handleOauthCallback(root, query);
       if (resource === 'dev') return await viewProfile(root, parts[1]);
       if (resource === 'u') return await resolveByLogin(root, parts[1]);
       if (resource === 'browse') return await viewBrowse(root, query);
@@ -646,6 +657,28 @@
       '</div></div>';
   }
 
+  function handleOauthCallback(root, query) {
+    if (query.error) {
+      root.innerHTML = emptyState('!', 'sign-in failed', query.error);
+      return;
+    }
+    const token = query.token;
+    if (!token) {
+      root.innerHTML = emptyState('!', 'sign-in failed', 'Could not complete GitHub sign-in.');
+      return;
+    }
+    API.setToken(token);
+    API.session().then((user) => {
+      state.user = user;
+      renderProfileSlot();
+      location.hash = '#/';
+    }).catch(() => {
+      API.setToken(null);
+      state.user = null;
+      root.innerHTML = emptyState('!', 'sign-in failed', 'Could not complete GitHub sign-in.');
+    });
+  }
+
   /* ---------------- Landing ---------------- */
 
   async function viewHome(root, query) {
@@ -666,10 +699,13 @@
       field('login','username or email',{required:true,autocomplete:'username'}) +
       field('password','password',{type:'password',required:true,autocomplete:'current-password'}) +
       '<button class="btn btn-primary" type="submit">sign in</button></form>' +
+      '<div class="oauth-divider"><span>or</span></div>' +
+      '<button class="btn btn-ghost" type="button" id="hero-github-btn" style="width:100%">' + ICON.github + ' continue with GitHub</button>' +
       '<p class="auth-switch">Need an account? <button class="text-button" type="button" id="hero-reg-btn">register</button></p>' +
       '</section></div></div>';
 
     $('#hero-reg-btn').addEventListener('click', () => openAuthModal('register'));
+    $('#hero-github-btn').addEventListener('click', () => { location.href = API.base + '/oauth/github'; });
     const form = $('#landing-login-form');
     form.addEventListener('submit', async e => {
       e.preventDefault();
@@ -1142,10 +1178,10 @@
   async function viewFollowing(root, query = {}) {
     if (!requireGate(root)) return;
     root.innerHTML = '<div class="container"><div class="spread wrap"><div><h1 class="page-title">contacts</h1></div>' +
-      '<div class="row wrap"><a class="btn" href="#/browse">discover developers</a><button class="btn btn-primary" id="add-contact">' + ICON.plus + ' new contact</button></div></div>' +
+      '<div class="row wrap"><a class="btn" href="#/browse">browse</a><button class="btn btn-primary" id="add-contact">' + ICON.plus + ' new contact</button></div></div>' +
       '<form class="contact-search" id="contact-search"><label class="sr-only" for="contact-filter">Search contacts</label>' +
-      '<input class="input" type="search" id="contact-filter" placeholder="search name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
-      '<button class="btn" type="submit">search</button></form><div id="contact-results" aria-live="polite" class="section"></div></div>';
+      '<input class="search-input" type="search" id="contact-filter" placeholder="search name, email, phone or notes" maxlength="100" value="' + escapeHtml(query.q || '') + '">' +
+      '<button class="btn btn-primary" type="submit">' + ICON.search + '</button></form><div id="contact-results" aria-live="polite" class="section"></div></div>';
     const results = $('#contact-results');
     const search = $('#contact-filter');
     let page = 1, generation = 0;
@@ -1327,7 +1363,7 @@
           sharedLangs.map((l) => '<span class="chip static">' + escapeHtml(l) + '</span>').join('') +
           '</div></section>' : '') +
       '<section class="section"><h3 class="section-title">skills</h3><div class="chips">' + skillChips(profile.skills) + '</div></section>' +
-      '<section class="section" id="github-section"></section>' +
+      (gh ? '<section class="section" id="github-section"></section>' : '') +
       '</div>';
 
     $('#share-btn').addEventListener('click', () => shareProfile(profile));
@@ -1832,6 +1868,70 @@
     });
   }
 
+  function stopMessagesPolling() {
+    pollEpoch++;
+    messagesPollingActive = false;
+    pollInFlight = false;
+    if (messagesPollTimer) {
+      clearTimeout(messagesPollTimer);
+      messagesPollTimer = null;
+    }
+  }
+
+  function startMessagesPolling(conversationid) {
+    stopMessagesPolling();
+    messagesPollingActive = true;
+    activeConversationId = conversationid;
+    scheduleMessagesPoll();
+  }
+
+  function scheduleMessagesPoll() {
+    if (!messagesPollingActive) return;
+    if (document.visibilityState !== 'visible') return;
+    if (messagesPollTimer) clearTimeout(messagesPollTimer);
+    messagesPollTimer = setTimeout(() => pollMessages(activeConversationId), 5000);
+  }
+
+  async function pollMessages(conversationid) {
+    if (pollInFlight) return;
+    if (document.visibilityState !== 'visible') return;
+    pollInFlight = true;
+    const epoch = pollEpoch;
+    try {
+      const listChanged = await pollConversationList();
+      await pollOpenThread(conversationid);
+      if (listChanged) drawConvoList();
+    } catch (e) { /* best-effort polling */ }
+    finally {
+      pollInFlight = false;
+      if (epoch === pollEpoch) scheduleMessagesPoll();
+    }
+  }
+
+  async function pollConversationList() {
+    const result = await API.conversationsIfChanged(convoEtag);
+    if (result.notModified) return false;
+    state.convos = result.data || [];
+    convoEtag = result.etag;
+    return true;
+  }
+
+  async function pollOpenThread(conversationid) {
+    if (!conversationid) return;
+    if (String(parseHash().parts[1]) !== String(conversationid)) return;
+
+    const messages = await API.messages(conversationid, { since: lastThreadMessageId }) || [];
+    if (!messages.length) return;
+    const latest = Number(messages[messages.length - 1].messageid);
+    if (latest <= lastThreadMessageId) return;
+
+    lastThreadMessageId = latest;
+    appendThreadMessages(conversationid, messages);
+    await API.markRead(conversationid).catch(() => {});
+    const convo = state.convos.find((c) => Number(c.conversationid) === Number(conversationid));
+    if (convo) convo.unreadCount = 0;
+  }
+
   async function viewMessages(root, conversationid) {
     if (!requireGate(root)) return;
 
@@ -1845,14 +1945,18 @@
 
     $('#new-msg-top').addEventListener('click', openNewMessageModal);
 
-    state.convos = await API.conversations() || [];
+    const list = await API.conversationsIfChanged(null);
+    state.convos = list.data || [];
+    convoEtag = list.etag;
     drawConvoList();
 
     if (conversationid) {
       await drawThread(Number(conversationid));
+      startMessagesPolling(Number(conversationid));
     } else {
       $('.thread').innerHTML = emptyState(ICON.mail, 'messages',
         'select a conversation or start a new one.');
+      startMessagesPolling(null);
     }
   }
 
@@ -1884,7 +1988,27 @@
     await drawThread(conversationid);
   }
 
-  async function drawThread(conversationid) {
+  function messageBubbles(messages, isGroup) {
+    return messages.length
+      ? messages.map((m) => {
+          const mine = Number(m.sender_userid) === state.user.userid;
+          const sender = m.sender_displayname || m.sender_login || '';
+          return '<div class="bubble' + (mine ? ' me' : '') + '">' +
+            (!mine && isGroup ? '<span class="bubble-sender">' + escapeHtml(sender) + '</span>' : '') +
+            '<div>' + escapeHtml(m.body) + '</div>' + shareCardHtml(m.share) + '</div>';
+        }).join('')
+      : '';
+  }
+
+  function appendThreadMessages(conversationid, messages) {
+    const body = $('#thread-body');
+    if (!body || !messages.length) return;
+    const convo = state.convos.find((c) => Number(c.conversationid) === Number(conversationid));
+    body.insertAdjacentHTML('beforeend', messageBubbles(messages, convo ? convo.isGroup : false));
+    body.scrollTop = body.scrollHeight;
+  }
+
+  async function drawThread(conversationid, quiet = false) {
     const thread = $('.thread');
     if (!thread) return;
 
@@ -1901,23 +2025,21 @@
     const participantIds = others.map((p) => p.userid);
 
     const messages = await API.messages(conversationid) || [];
+    lastThreadMessageId = messages.length ? Number(messages[messages.length - 1].messageid) : 0;
     await API.markRead(conversationid).catch(() => {});
     const idx = state.convos.indexOf(convo);
     if (idx >= 0) state.convos[idx].unreadCount = 0;
 
-    const bubbles = messages.length
-      ? messages.map((m) => {
-          const mine = Number(m.sender_userid) === state.user.userid;
-          const sender = m.sender_displayname || m.sender_login || '';
-          return '<div class="bubble' + (mine ? ' me' : '') + '">' +
-            (!mine && isGroup ? '<span class="bubble-sender">' + escapeHtml(sender) + '</span>' : '') +
-            '<div>' + escapeHtml(m.body) + '</div>' + shareCardHtml(m.share) + '</div>';
-        }).join('')
-      : '<div class="empty"><p class="muted">no messages yet. say hello!</p></div>';
+    const bubbles = messageBubbles(messages, isGroup) ||
+      '<div class="empty"><p class="muted">no messages yet. say hello!</p></div>';
 
     const subtitle = isGroup
       ? (others.length + 1) + ' people'
       : (others[0] ? '@' + escapeHtml(others[0].loginuid || '') : '');
+
+    const prevInput = $('#composer-input');
+    const draft = prevInput ? prevInput.value : '';
+    const hadFocus = prevInput ? (document.activeElement === prevInput) : false;
 
     thread.innerHTML =
       '<div class="thread-head">' + avatarHtml(av, 'sm') +
@@ -1956,7 +2078,8 @@
     }
 
     const input = $('#composer-input');
-    input.focus();
+    if (draft) input.value = draft;
+    if (!quiet || hadFocus) input.focus();
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -1983,6 +2106,10 @@
   async function viewSettings(root, query) {
     if (!requireGate(root)) return;
     const tab = query.tab || 'profile';
+    if (query.oauth_error) {
+      toast(query.oauth_error, 'error');
+      history.replaceState(null, '', '#/settings?tab=' + tab);
+    }
     const userid = state.user.userid;
 
     root.innerHTML =
@@ -2217,34 +2344,61 @@
     let gh = null;
     try { gh = await API.github(userid); } catch (e) { gh = null; }
 
+    if (!gh) {
+      panel.innerHTML =
+        '<div class="panel" style="padding:20px;display:grid;gap:14px">' +
+        '<div><div class="section-title">github</div>' +
+        '<p class="muted">Connect your GitHub account to verify ownership and show your repositories, commits, and activity on your profile.</p>' +
+        '<div class="row mt"><button class="btn btn-primary" id="gh-connect">' + ICON.github + ' connect GitHub</button></div>' +
+        '</div></div>';
+      $('#gh-connect').addEventListener('click', async () => {
+        try {
+          const res = await API.connectGithub();
+          location.href = res.url;
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+      return;
+    }
+
     panel.innerHTML =
       '<div class="panel" style="padding:20px;display:grid;gap:14px">' +
       '<div><div class="section-title">linked account</div>' +
       '<div class="row">' +
-      '<input class="input flex1" id="gh-username" placeholder="GitHub username" value="' + escapeHtml(gh ? gh.username : '') + '">' +
+      '<span class="mono">@' + escapeHtml(gh.username) + '</span>' +
       '<button class="btn btn-primary" id="gh-sync">' + ICON.refresh + ' refresh now</button>' +
+      '<button class="btn btn-ghost" id="gh-disconnect">disconnect</button>' +
       '</div>' +
-      '<p class="home-hint">' + (gh && gh.lastSynced ? 'last synced ' + escapeHtml(timeAgo(gh.lastSynced)) : 'never synced') + '</p>' +
+      '<p class="home-hint">' + (gh.lastSynced ? 'last synced ' + escapeHtml(timeAgo(gh.lastSynced)) : 'never synced') + '</p>' +
       '</div>' +
-      (gh ? '<div class="stat-grid">' +
+      '<div class="stat-grid">' +
         statCell('followers', fmtNum(gh.followers)) +
         statCell('repositories', fmtNum(gh.publicRepos)) +
         statCell('public gists', fmtNum(gh.publicGists)) +
         statCell('repos cached', fmtNum((gh.repositories || []).length)) +
-        '</div>' : '') +
+      '</div>' +
       '</div>';
 
     $('#gh-sync').addEventListener('click', async () => {
-      const username = $('#gh-username').value.trim();
       const btn = $('#gh-sync');
       btn.disabled = true;
       try {
-        await API.syncGithub(username ? { username } : {});
+        await API.syncGithub({});
         toast('GitHub refreshed', 'success');
         viewSettings($('#app'), { tab: 'github' });
       } catch (err) {
         toast(err.message, 'error');
         btn.disabled = false;
+      }
+    });
+    $('#gh-disconnect').addEventListener('click', async () => {
+      try {
+        await API.disconnectGithub();
+        toast('GitHub account disconnected', 'success');
+        viewSettings($('#app'), { tab: 'github' });
+      } catch (err) {
+        toast(err.message, 'error');
       }
     });
   }
@@ -2583,11 +2737,11 @@
   function shareCardHtml(share) {
     if (!share) return '';
     if (share.type === 'role') {
-      const label = (share.name || 'Role') + (share.organization ? ' · ' + share.organization : '');
-      return '<a class="share-card" href="#/roles/' + share.roleid + '">' + ICON.briefcase + ' ' + escapeHtml(label) + '</a>';
+      const label = (share.name || 'role') + (share.organization ? ' · ' + share.organization : '');
+      return '<a class="share-card" href="#/roles/' + share.roleid + '">' + escapeHtml(label) + '</a>';
     }
     return '<a class="share-card" href="#/orgs/' + encodeURIComponent(share.slug || '') + '">' +
-      ICON.briefcase + ' ' + escapeHtml(share.name || 'Organization') + '</a>';
+      escapeHtml(share.name || 'organization') + '</a>';
   }
 
   function openShareModal(kind, id, label) {
@@ -2596,15 +2750,15 @@
       const options = convos.map((c) =>
         '<option value="' + c.conversationid + '">' + escapeHtml(conversationTitle(c)) + '</option>').join('');
       const picker = options
-        ? '<div class="field"><label for="field-conversationid">Conversation</label>' +
+        ? '<div class="field"><label for="field-conversationid">conversation</label>' +
           '<select class="select" id="field-conversationid" name="conversationid">' + options + '</select></div>'
-        : field('login', 'Username to message', { required: true, maxlength: 50 });
-      formDialog('Share ' + label, 'Send this in a message. The other person can open it from the conversation.',
+        : field('login', 'username to message', { required: true, maxlength: 50 });
+      formDialog('share ' + label, 'Send this in a message. The other person can open it from the conversation.',
         picker +
-        '<div class="field"><label for="field-body">Message</label>' +
+        '<div class="field"><label for="field-body">message</label>' +
         '<textarea class="textarea" id="field-body" name="body" required maxlength="2000">Take a look at ' +
         escapeHtml(label) + '</textarea></div>',
-        'Send',
+        'send',
         async (data) => {
           let conversationid = data.conversationid;
           if (!conversationid) {
@@ -2613,7 +2767,7 @@
           }
           const share = kind === 'role' ? { roleid: Number(id) } : { organizationid: Number(id) };
           await API.sendMessage(conversationid, data.body, share);
-          toast('Shared', 'success');
+          toast('shared', 'success');
         });
     }).catch((err) => toast(err.message, 'error'));
   }
@@ -2623,7 +2777,7 @@
       btn.disabled = true;
       try {
         await API.applyToRole(btn.dataset.apply);
-        toast('Application sent', 'success');
+        toast('application sent', 'success');
         await render();
       } catch (err) {
         toast(err.message, 'error');
@@ -2634,7 +2788,7 @@
       btn.disabled = true;
       try {
         await API.withdrawApplication(btn.dataset.withdraw);
-        toast('Application withdrawn', 'success');
+        toast('application withdrawn', 'success');
         await render();
       } catch (err) {
         toast(err.message, 'error');
@@ -2666,8 +2820,8 @@
       '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.statusLabel) + '</span></div>' +
       '<a class="muted" href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a>' +
       (role.description ? '<p class="listing-desc">' + escapeHtml(role.description) + '</p>' : '') +
-      (skills ? '<div class="chip-row">' + skills + '</div>' : '') +
-      '<div class="row">' +
+      (skills ? '<div class="chips">' + skills + '</div>' : '') +
+      '<div class="row listing-actions">' +
       (role.canManage
         ? '<a class="btn btn-sm" href="#/roles/' + role.roleid + '">' + role.applicantCount +
           (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</a>'
@@ -2678,31 +2832,31 @@
   }
 
   function openCreateOrganization() {
-    formDialog('Create organization', 'You stay signed in with your user account. Creating an organization makes you its owner.',
-      field('name', 'Name', { required: true, maxlength: 100 }) +
-      field('slug', 'Address', { maxlength: 50, placeholder: 'optional, from the name' }) +
-      textArea('description', 'Description') +
-      field('location', 'Location', { maxlength: 100 }) +
-      field('website', 'Website', { maxlength: 255 }),
-      'Create',
+    formDialog('create organization', 'You stay signed in with your user account. Creating an organization makes you its owner.',
+      field('name', 'name', { required: true, maxlength: 100 }) +
+      field('slug', 'address', { maxlength: 50, placeholder: 'optional, from the name' }) +
+      textArea('description', 'description') +
+      field('location', 'location', { maxlength: 100 }) +
+      field('website', 'website', { maxlength: 255 }),
+      'create',
       async (data) => {
         const created = await API.createOrganization(data);
-        toast('Organization created', 'success');
+        toast('organization created', 'success');
         location.hash = '#/orgs/' + encodeURIComponent(created.slug);
       });
   }
 
   function openEditOrganization(org) {
-    formDialog('Edit organization', org.name,
-      field('name', 'Name', { required: true, maxlength: 100 }, org.name) +
-      field('slug', 'Address', { required: true, maxlength: 50 }, org.slug) +
-      textArea('description', 'Description', org.description) +
-      field('location', 'Location', { maxlength: 100 }, org.location || '') +
-      field('website', 'Website', { maxlength: 255 }, org.website || ''),
-      'Save',
+    formDialog('edit organization', org.name,
+      field('name', 'name', { required: true, maxlength: 100 }, org.name) +
+      field('slug', 'address', { required: true, maxlength: 50 }, org.slug) +
+      textArea('description', 'description', org.description) +
+      field('location', 'location', { maxlength: 100 }, org.location || '') +
+      field('website', 'website', { maxlength: 255 }, org.website || ''),
+      'save',
       async (data) => {
         const saved = await API.updateOrganization(org.slug, data);
-        toast('Organization updated', 'success');
+        toast('organization updated', 'success');
         if (saved.slug && saved.slug !== org.slug) {
           location.hash = '#/orgs/' + encodeURIComponent(saved.slug);
         } else {
@@ -2712,16 +2866,16 @@
   }
 
   function confirmDeleteOrganization(org) {
-    messageDialog('Delete organization', 'Delete ' + org.name + ' and every role posted under it? Applications go with the roles. Messages that shared them keep their text.',
-      '<button class="btn" type="button" data-close>Cancel</button>' +
-      '<button class="btn btn-primary" type="button" id="confirm-delete-org">Delete</button>');
+    messageDialog('delete organization', 'Delete ' + org.name + ' and every role posted under it? Applications go with the roles. Messages that shared them keep their text.',
+      '<button class="btn" type="button" data-close>cancel</button>' +
+      '<button class="btn btn-primary" type="button" id="confirm-delete-org">delete</button>');
     $('#confirm-delete-org').addEventListener('click', async () => {
       const button = $('#confirm-delete-org');
       button.disabled = true;
       try {
         await API.deleteOrganization(org.slug);
         closeModal();
-        toast('Organization deleted', 'success');
+        toast('organization deleted', 'success');
         location.hash = '#/orgs';
       } catch (err) {
         toast(err.message, 'error');
@@ -2743,33 +2897,33 @@
       }
     }
     const skillText = (full.skills || []).map((skill) => skill.name).join(', ');
-    formDialog('Edit role', full.organization ? full.organization.name : '',
-      field('name', 'Role name', { required: true, maxlength: 100 }, full.name) +
-      textArea('description', 'Description', full.description) +
-      (skillsKnown ? field('skills', 'Skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }, skillText) : '') +
-      '<div class="field"><label for="field-status">Status</label><select class="select" id="field-status" name="status">' +
-      '<option value="open"' + (full.status === 'open' ? ' selected' : '') + '>Accepting applications</option>' +
-      '<option value="closed"' + (full.status === 'closed' ? ' selected' : '') + '>Closed</option></select></div>',
-      'Save',
+    formDialog('edit role', full.organization ? full.organization.name : '',
+      field('name', 'role name', { required: true, maxlength: 100 }, full.name) +
+      textArea('description', 'description', full.description) +
+      (skillsKnown ? field('skills', 'skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }, skillText) : '') +
+      '<div class="field"><label for="field-status">status</label><select class="select" id="field-status" name="status">' +
+      '<option value="open"' + (full.status === 'open' ? ' selected' : '') + '>accepting applications</option>' +
+      '<option value="closed"' + (full.status === 'closed' ? ' selected' : '') + '>closed</option></select></div>',
+      'save',
       async (data) => {
         if (!skillsKnown) delete data.skills;
         await API.updateRole(full.roleid, data);
-        toast('Role updated', 'success');
+        toast('role updated', 'success');
         await render();
       });
   }
 
   function confirmDeleteRole(role, orgSlug) {
-    messageDialog('Delete role', 'Delete ' + (role.name || 'this role') + '? Its applications are removed. Messages that shared it keep their text.',
-      '<button class="btn" type="button" data-close>Cancel</button>' +
-      '<button class="btn btn-primary" type="button" id="confirm-delete-role">Delete</button>');
+    messageDialog('delete role', 'Delete ' + (role.name || 'this role') + '? Its applications are removed. Messages that shared it keep their text.',
+      '<button class="btn" type="button" data-close>cancel</button>' +
+      '<button class="btn btn-primary" type="button" id="confirm-delete-role">delete</button>');
     $('#confirm-delete-role').addEventListener('click', async () => {
       const button = $('#confirm-delete-role');
       button.disabled = true;
       try {
         await API.deleteRole(role.roleid);
         closeModal();
-        toast('Role deleted', 'success');
+        toast('role deleted', 'success');
         location.hash = orgSlug ? '#/orgs/' + encodeURIComponent(orgSlug) : '#/roles';
       } catch (err) {
         toast(err.message, 'error');
@@ -2779,32 +2933,39 @@
   }
 
   function openAddMember(org) {
-    formDialog('Add member', 'They must already have a collab.dev account. They sign in with their own username.',
-      field('login', 'Username', { required: true, maxlength: 50 }),
-      'Add',
+    formDialog('add member', 'They must already have a collab.dev account. They sign in with their own username.',
+      field('login', 'username', { required: true, maxlength: 50 }),
+      'add',
       async (data) => {
         await API.addOrganizationMember(org.slug, data.login);
-        toast('Member added', 'success');
+        toast('member added', 'success');
         await render();
       });
   }
 
   function openCreateRole(org) {
-    formDialog('Post a role', 'Skills must already exist in the catalog, separated by commas.',
-      field('name', 'Role name', { required: true, maxlength: 100 }) +
-      textArea('description', 'Description') +
-      field('skills', 'Skills', { maxlength: 300, placeholder: 'PHP, JavaScript' }),
-      'Post role',
+    const selected = [];
+    formDialog('post a role', 'Skills must already exist in the catalog.',
+      field('name', 'role name', { required: true, maxlength: 100 }) +
+      textArea('description', 'description') +
+      '<div class="field"><label>skills</label><div id="role-skills-picker"></div></div>',
+      'post role',
       async (data) => {
         const created = await API.createRole({
           organizationid: org.organizationid,
           name: data.name,
           description: data.description,
-          skills: data.skills,
+          skills: selected.join(','),
         });
-        toast('Role posted', 'success');
+        toast('role posted', 'success');
         location.hash = '#/roles/' + created.roleid;
       });
+
+    API.skills().then((catalog) => {
+      const names = (catalog || []).map((s) => s.name);
+      const host = $('#role-skills-picker');
+      if (host) createMultiSelect(host, names, selected, 'type a skill…', () => {});
+    }).catch(() => {});
   }
 
   async function viewRoles(root, query, roleid) {
@@ -2823,23 +2984,25 @@
     const applications = mine || [];
 
     root.innerHTML =
-      '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' Roles</h1></div>' +
+      '<div class="container">' +
+      '<div class="spread"><h1 class="page-title">roles</h1></div>' +
       '<p class="sub">Open roles are accepting applications. Apply once, or share a listing in a message.</p>' +
-      '<section class="section"><h2 class="section-title">Your applications</h2>' +
+      '<section class="section"><h2 class="section-title">your applications</h2>' +
       (applications.length
         ? '<div class="card-grid">' + applications.map(roleCard).join('') + '</div>'
         : '<p class="muted">You have not applied to a role yet.</p>') +
       '</section>' +
       '<div class="row mt">' +
-      '<a class="btn btn-sm' + (status === 'open' ? ' btn-primary' : '') + '" href="#/roles?status=open">Accepting applications</a>' +
-      '<a class="btn btn-sm' + (status === 'closed' ? ' btn-primary' : '') + '" href="#/roles?status=closed">Closed</a>' +
-      '<a class="btn btn-sm' + (status === 'all' ? ' btn-primary' : '') + '" href="#/roles?status=all">All</a>' +
+      '<a class="btn btn-sm' + (status === 'open' ? ' btn-primary' : '') + '" href="#/roles?status=open">accepting applications</a>' +
+      '<a class="btn btn-sm' + (status === 'closed' ? ' btn-primary' : '') + '" href="#/roles?status=closed">closed</a>' +
+      '<a class="btn btn-sm' + (status === 'all' ? ' btn-primary' : '') + '" href="#/roles?status=all">all</a>' +
       '</div>' +
       '<form class="search-form mt" id="role-search">' +
       '<input class="search-input" name="q" type="search" aria-label="Search roles" placeholder="search roles or organizations" value="' + escapeHtml(query.q || '') + '">' +
-      '<button class="btn" type="submit">' + ICON.search + '</button></form>' +
+      '<button class="btn btn-primary" type="submit">' + ICON.search + '</button></form>' +
       '<div class="card-grid section">' +
       (listings.length ? listings.map(roleCard).join('') : '<div class="empty"><p>No roles in this list yet.</p></div>') +
+      '</div>' +
       '</div>';
 
     $('#role-search').addEventListener('submit', (e) => {
@@ -2862,8 +3025,8 @@
       action = '<button class="btn btn-sm" type="button" id="edit-role">edit</button>' +
         '<button class="btn btn-sm btn-ghost" type="button" id="delete-role">delete</button>' +
         (role.status === 'open'
-          ? '<button class="btn btn-sm" type="button" id="close-role">Close role</button>'
-          : '<button class="btn btn-sm" type="button" id="open-role">Reopen role</button>');
+          ? '<button class="btn btn-sm" type="button" id="close-role">close role</button>'
+          : '<button class="btn btn-sm" type="button" id="open-role">reopen role</button>');
     } else if (role.status === 'open' && (!role.applied || decision === 'rejected')) {
       action = '<button class="btn btn-sm btn-primary" type="button" data-apply="' + role.roleid + '">' +
         (decision === 'rejected' ? 'apply again' : 'apply') + '</button>';
@@ -2876,8 +3039,8 @@
       if (decision === 'accepted' && invite && invite.status === 'pending') {
         appliedNote = '<p class="muted">You were accepted. Join ' + escapeHtml(role.organization.name) + ' or decline the invitation.</p>' +
           '<div class="row">' +
-          '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">Join organization</button>' +
-          '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">Decline</button></div>';
+          '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">join organization</button>' +
+          '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">decline</button></div>';
       } else if (decision === 'accepted' && invite && invite.status === 'declined') {
         appliedNote = '<p class="muted">You were accepted and declined the invitation to join.</p>';
       } else if (decision === 'accepted') {
@@ -2889,24 +3052,26 @@
       }
     }
     const applicants = role.canManage
-      ? '<section class="section"><h2 class="section-title">Applicants</h2>' +
+      ? '<section class="section"><h2 class="section-title">applicants</h2>' +
         ((role.applicants || []).length
           ? '<div class="stack">' + role.applicants.map(applicantLine).join('') + '</div>'
           : '<p class="muted">No applications yet.</p>') + '</section>'
       : '';
 
     root.innerHTML =
+      '<div class="container">' +
       '<a class="btn btn-sm btn-ghost" href="#/roles">' + ICON.back + ' roles</a>' +
       '<div class="spread mt"><h1 class="page-title">' + escapeHtml(role.name) + '</h1>' +
       '<span class="badge' + (role.status === 'open' ? ' accent' : '') + '">' + escapeHtml(role.statusLabel) + '</span></div>' +
       '<p><a href="#/orgs/' + encodeURIComponent(role.organization.slug) + '">' + escapeHtml(role.organization.name) + '</a></p>' +
       (role.description ? '<p class="listing-copy">' + escapeHtml(role.description) + '</p>' : '') +
-      (skills ? '<div class="chip-row mt">' + skills + '</div>' : '') +
+      (skills ? '<div class="chips mt">' + skills + '</div>' : '') +
       appliedNote +
       '<div class="row mt"><span class="faint">' + role.applicantCount +
       (role.applicantCount === 1 ? ' applicant' : ' applicants') + '</span>' + action +
       '<button class="btn btn-sm" type="button" data-share-role="' + role.roleid + '" data-share-label="' +
-      escapeHtml(role.name) + '">' + ICON.share + ' share</button></div>' + applicants;
+      escapeHtml(role.name) + '">' + ICON.share + ' share</button></div>' + applicants +
+      '</div>';
 
     const closeBtn = $('#close-role');
     const openBtn = $('#open-role');
@@ -2945,20 +3110,20 @@
         const decision = btn.dataset.decide;
         const name = btn.dataset.applicantName || 'this applicant';
         messageDialog(
-          decision === 'accepted' ? 'Accept application' : 'Reject application',
+          decision === 'accepted' ? 'accept application' : 'reject application',
           decision === 'accepted'
             ? 'Accept ' + name + '? They get a message and an invitation to join the organization or decline.'
             : 'Reject ' + name + '\'s application?',
-          '<button class="btn" type="button" data-close>Cancel</button>' +
+          '<button class="btn" type="button" data-close>cancel</button>' +
           '<button class="btn btn-primary" type="button" id="confirm-decision">' +
-          (decision === 'accepted' ? 'Accept' : 'Reject') + '</button>');
+          (decision === 'accepted' ? 'accept' : 'reject') + '</button>');
         $('#confirm-decision').addEventListener('click', async () => {
           const confirm = $('#confirm-decision');
           confirm.disabled = true;
           try {
             await API.decideApplication(btn.dataset.roleid, btn.dataset.userid, decision);
             closeModal();
-            toast(decision === 'accepted' ? 'Application accepted' : 'Application rejected', 'success');
+            toast(decision === 'accepted' ? 'application accepted' : 'application rejected', 'success');
             await render();
           } catch (err) {
             toast(err.message, 'error');
@@ -2973,10 +3138,10 @@
     const role = invite.role && invite.role.name ? ' for ' + escapeHtml(invite.role.name) : '';
     return '<div class="panel listing-card spread"><div><a href="#/orgs/' + encodeURIComponent(invite.organization.slug) + '"><b>' +
       escapeHtml(invite.organization.name) + '</b></a>' +
-      '<div class="faint">Invitation to join' + role + '</div></div>' +
+      '<div class="faint">invitation to join' + role + '</div></div>' +
       '<div class="row">' +
-      '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">Join</button>' +
-      '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">Decline</button></div></div>';
+      '<button class="btn btn-sm btn-primary" type="button" data-join-invite="' + invite.invitationid + '">join</button>' +
+      '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">decline</button></div></div>';
   }
 
   function bindInvitations(root) {
@@ -2997,7 +3162,7 @@
     try {
       if (accept) await API.acceptInvitation(btn.dataset.joinInvite);
       else await API.declineInvitation(btn.dataset.declineInvite);
-      toast(accept ? 'You joined the organization' : 'Invitation declined', 'success');
+      toast(accept ? 'you joined the organization' : 'invitation declined', 'success');
       await render();
     } catch (err) {
       toast(err.message, 'error');
@@ -3008,7 +3173,7 @@
   async function setRoleStatus(role, status) {
     try {
       await API.updateRole(role.roleid, { status });
-      toast(status === 'closed' ? 'Role closed' : 'Role reopened', 'success');
+      toast(status === 'closed' ? 'role closed' : 'role reopened', 'success');
       await render();
     } catch (err) {
       toast(err.message, 'error');
@@ -3037,19 +3202,21 @@
     const others = (all || []).filter((org) => !mineIds.has(org.organizationid));
 
     root.innerHTML =
-      '<div class="spread"><h1 class="page-title">' + ICON.briefcase + ' Organizations</h1>' +
-      '<button class="btn btn-primary" type="button" id="create-org">' + ICON.plus + ' New organization</button></div>' +
+      '<div class="container">' +
+      '<div class="spread"><h1 class="page-title">organizations</h1>' +
+      '<button class="btn btn-primary" type="button" id="create-org">' + ICON.plus + ' new organization</button></div>' +
       '<p class="sub">An organization uses your existing login. You create it, and you are the owner.</p>' +
       ((invitations || []).length
-        ? '<section class="section"><h2 class="section-title">Invitations</h2><div class="stack">' +
+        ? '<section class="section"><h2 class="section-title">invitations</h2><div class="stack">' +
           invitations.map(invitationCard).join('') + '</div></section>'
         : '') +
-      '<section class="section"><h2 class="section-title">Yours</h2><div class="card-grid">' +
+      '<section class="section"><h2 class="section-title">yours</h2><div class="card-grid">' +
       ((mine || []).length ? mine.map(orgCard).join('') : '<div class="empty"><p>You have not created or joined an organization yet.</p></div>') +
       '</div></section>' +
-      '<section class="section"><h2 class="section-title">Directory</h2><div class="card-grid">' +
+      '<section class="section"><h2 class="section-title">directory</h2><div class="card-grid">' +
       (others.length ? others.map(orgCard).join('') : '<div class="empty"><p>No other organizations yet.</p></div>') +
-      '</div></section>';
+      '</div></section>' +
+      '</div>';
 
     $('#create-org').addEventListener('click', openCreateOrganization);
     bindInvitations(root);
@@ -3085,37 +3252,39 @@
     }).join('');
 
     root.innerHTML =
+      '<div class="container">' +
       '<a class="btn btn-sm btn-ghost" href="#/orgs">' + ICON.back + ' organizations</a>' +
       '<div class="spread mt"><h1 class="page-title">' + escapeHtml(org.name) + '</h1>' +
       '<div class="row">' +
       (isOwner ? '<button class="btn btn-sm" type="button" id="edit-org">edit</button>' +
         '<button class="btn btn-sm btn-ghost" type="button" id="delete-org">delete</button>' : '') +
-      (isMember ? '<button class="btn btn-sm btn-primary" type="button" id="post-role">' + ICON.plus + ' Post role</button>' : '') +
+      (isMember ? '<button class="btn btn-sm btn-primary" type="button" id="post-role">' + ICON.plus + ' post role</button>' : '') +
       '<button class="btn btn-sm" type="button" data-share-org="' + org.organizationid + '" data-share-label="' +
       escapeHtml(org.name) + '">' + ICON.share + ' share</button></div></div>' +
       '<p class="faint">@' + escapeHtml(org.slug) +
       (org.location ? ' · ' + escapeHtml(org.location) : '') +
       (safeHttpUrl(org.website) ? ' · <a href="' + escapeHtml(safeHttpUrl(org.website)) + '">' + escapeHtml(org.website) + '</a>' : '') + '</p>' +
       (org.description ? '<p class="listing-copy">' + escapeHtml(org.description) + '</p>' : '') +
-      '<section class="section"><div class="spread"><h2 class="section-title">People</h2>' +
-      (isOwner ? '<button class="btn btn-sm" type="button" id="add-member">' + ICON.plus + ' Add member</button>' : '') +
+      '<section class="section"><div class="spread" style="margin-bottom:12px"><h2 class="section-title" style="margin:0">people</h2>' +
+      (isOwner ? '<button class="btn btn-sm" type="button" id="add-member">' + ICON.plus + ' add member</button>' : '') +
       '</div><div class="stack">' + (members || '<p class="muted">No members.</p>') + '</div></section>' +
-      '<section class="section"><h2 class="section-title">Roles</h2><div class="stack">' +
-      (roles || '<p class="muted">No roles posted yet.</p>') + '</div></section>';
+      '<section class="section"><h2 class="section-title">roles</h2><div class="stack">' +
+      (roles || '<p class="muted">No roles posted yet.</p>') + '</div></section>' +
+      '</div>';
 
     if (isOwner) {
       $('#edit-org').addEventListener('click', () => openEditOrganization(org));
       $('#delete-org').addEventListener('click', () => confirmDeleteOrganization(org));
       $('#add-member').addEventListener('click', () => openAddMember(org));
       $$('[data-remove-member]', root).forEach((btn) => btn.addEventListener('click', () => {
-        messageDialog('Remove member', 'Remove ' + btn.dataset.memberName + ' from ' + org.name + '?',
-          '<button class="btn" type="button" data-close>Cancel</button>' +
-          '<button class="btn btn-primary" type="button" id="confirm-remove">Remove</button>');
+        messageDialog('remove member', 'Remove ' + btn.dataset.memberName + ' from ' + org.name + '?',
+          '<button class="btn" type="button" data-close>cancel</button>' +
+          '<button class="btn btn-primary" type="button" id="confirm-remove">remove</button>');
         $('#confirm-remove').addEventListener('click', async () => {
           try {
             await API.removeOrganizationMember(org.slug, btn.dataset.removeMember);
             closeModal();
-            toast('Member removed', 'success');
+            toast('member removed', 'success');
             await render();
           } catch (err) {
             toast(err.message, 'error');
@@ -3175,6 +3344,17 @@
   window.addEventListener('maintenance-mode', () => {
     state.maintenance = true;
     renderMaintenance();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      if (messagesPollTimer) {
+        clearTimeout(messagesPollTimer);
+        messagesPollTimer = null;
+      }
+    } else if (messagesPollingActive) {
+      pollMessages(activeConversationId);
+    }
   });
 
   (async function init() {

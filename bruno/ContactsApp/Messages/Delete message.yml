@@ -1,0 +1,19 @@
+info:
+  name: Delete message
+  type: http
+  seq: 82
+
+http:
+  method: DELETE
+  url: "{{urlBase}}/api/index.php/messages/{{process.env.TEST_MESSAGE_ID}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

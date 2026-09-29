@@ -1,0 +1,19 @@
+info:
+  name: Facets
+  type: http
+  seq: 24
+
+http:
+  method: GET
+  url: "{{urlBase}}/api/index.php/profiles/facets"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200

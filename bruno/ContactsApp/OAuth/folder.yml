@@ -1,0 +1,7 @@
+info:
+  name: OAuth
+  type: folder
+  seq: 65
+
+request:
+  auth: inherit

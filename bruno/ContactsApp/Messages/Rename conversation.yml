@@ -1,0 +1,25 @@
+info:
+  name: Rename conversation
+  type: http
+  seq: 79
+
+http:
+  method: PUT
+  url: "{{urlBase}}/api/index.php/conversations/{{process.env.TEST_CONVERSATION_ID}}"
+  body:
+    type: json
+    json: |
+      {
+        "name": "project channel"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
+
+assert:
+  - res.status: eq 200
