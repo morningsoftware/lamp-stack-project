@@ -62,6 +62,12 @@ if ($sub === 'applicants') {
 
 respond(404, ['error' => 'Not found']);
 
+/**
+ * Lists roles with status, search, organization and applied filters.
+ *
+ * @param PDO $db
+ * @param int $userid
+ */
 function listRoles($db, $userid) {
     $status = isset($_GET['status']) ? clean($_GET['status']) : '';
     $q = isset($_GET['q']) ? clean($_GET['q']) : '';
@@ -114,6 +120,12 @@ function listRoles($db, $userid) {
     respond(200, ['data' => shapeRoles($db, $rows, $userid)]);
 }
 
+/**
+ * Posts a role for an organization the user belongs to.
+ *
+ * @param PDO $db
+ * @param int $userid
+ */
 function createRole($db, $userid) {
     $body = getRequestBody();
     requireFields($body, ['organizationid', 'name']);
@@ -152,6 +164,13 @@ function createRole($db, $userid) {
     respond(201, ['data' => ['roleid' => $roleid]]);
 }
 
+/**
+ * Returns a single role, with applicants when the user can manage it.
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $userid
+ */
 function getRole($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     $shaped = shapeRoles($db, [$row], $userid)[0];
@@ -161,6 +180,13 @@ function getRole($db, $roleid, $userid) {
     respond(200, ['data' => $shaped]);
 }
 
+/**
+ * Updates a role's name, description, status and skills (members only).
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $userid
+ */
 function updateRole($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     if (!(int) $row['is_member']) {
@@ -219,6 +245,13 @@ function updateRole($db, $roleid, $userid) {
     respond(200, ['data' => ['roleid' => $roleid, 'status' => $status]]);
 }
 
+/**
+ * Deletes a role and its applications (members only).
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $userid
+ */
 function deleteRole($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     if (!(int) $row['is_member']) {
@@ -233,6 +266,13 @@ function deleteRole($db, $roleid, $userid) {
     respond(200, ['data' => ['message' => 'Role deleted']]);
 }
 
+/**
+ * Submits the current user's application to an open role.
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $userid
+ */
 function applyToRole($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     if ($row['status'] !== 'open') {
@@ -277,6 +317,13 @@ function applyToRole($db, $roleid, $userid) {
     respond(201, ['data' => ['roleid' => $roleid, 'applied' => true]]);
 }
 
+/**
+ * Withdraws the current user's pending application.
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $userid
+ */
 function withdrawApplication($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     if (decisionReady($db) && (int) $row['applied'] && ($row['application_decision'] ?? 'pending') !== 'pending') {
@@ -288,6 +335,13 @@ function withdrawApplication($db, $roleid, $userid) {
     respond(200, ['data' => ['roleid' => $roleid, 'applied' => false]]);
 }
 
+/**
+ * Lists a role's applicants (members only).
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $userid
+ */
 function listApplicants($db, $roleid, $userid) {
     $row = fetchRole($db, $roleid, $userid);
     if (!(int) $row['is_member']) {
@@ -296,6 +350,12 @@ function listApplicants($db, $roleid, $userid) {
     respond(200, ['data' => applicantRows($db, $roleid)]);
 }
 
+/**
+ * Builds the role SELECT query, with decision columns when available.
+ *
+ * @param bool $withDecision Whether the applications table has decisions.
+ * @return string
+ */
 function roleSelectSql($withDecision = true) {
     $decision = $withDecision
         ? 'applied_row.decision AS application_decision,
@@ -323,6 +383,14 @@ function roleSelectSql($withDecision = true) {
             . $invite;
 }
 
+/**
+ * Fetches a role row with the user's membership and application state.
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $userid
+ * @return array
+ */
 function fetchRole($db, $roleid, $userid) {
     try {
         $ready = decisionReady($db);
@@ -344,6 +412,14 @@ function fetchRole($db, $roleid, $userid) {
     return $row;
 }
 
+/**
+ * Shapes role rows for the API, attaching skills and application state.
+ *
+ * @param PDO $db
+ * @param array $rows
+ * @param int $userid
+ * @return array
+ */
 function shapeRoles($db, $rows, $userid = 0) {
     if (!$rows) {
         return [];
@@ -384,6 +460,13 @@ function shapeRoles($db, $rows, $userid = 0) {
     return $shaped;
 }
 
+/**
+ * Maps role ids to their skills.
+ *
+ * @param PDO $db
+ * @param int[] $roleIds
+ * @return array
+ */
 function skillsForRoles($db, $roleIds) {
     $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
     $stmt = $db->prepare(
@@ -404,6 +487,13 @@ function skillsForRoles($db, $roleIds) {
     return $grouped;
 }
 
+/**
+ * Returns a role's applicants with their decisions.
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @return array
+ */
 function applicantRows($db, $roleid) {
     $decision = decisionReady($db) ? 'a.decision' : '\'pending\' AS decision';
     $stmt = $db->prepare(
@@ -429,6 +519,13 @@ function applicantRows($db, $roleid) {
     return $people;
 }
 
+/**
+ * Collects skill ids from the request body (skillIds array or skills list).
+ *
+ * @param PDO $db
+ * @param array $body
+ * @return int[]
+ */
 function skillIdsFromBody($db, $body) {
     $ids = [];
     if (isset($body['skillIds']) && is_array($body['skillIds'])) {
@@ -477,6 +574,13 @@ function skillIdsFromBody($db, $body) {
     return [];
 }
 
+/**
+ * Replaces a role's skill links.
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int[] $skillIds
+ */
 function replaceRoleSkills($db, $roleid, $skillIds) {
     $delete = $db->prepare('DELETE FROM role_skills WHERE roleid = :id');
     $delete->execute([':id' => $roleid]);
@@ -489,6 +593,13 @@ function replaceRoleSkills($db, $roleid, $skillIds) {
     }
 }
 
+/**
+ * Responds 403 unless the user is an organization member.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @param int $userid
+ */
 function requireMember($db, $organizationid, $userid) {
     $stmt = $db->prepare(
         'SELECT 1 FROM organization_members WHERE organizationid = :org AND userid = :userid LIMIT 1'
@@ -499,6 +610,14 @@ function requireMember($db, $organizationid, $userid) {
     }
 }
 
+/**
+ * Accepts or rejects an application and notifies the applicant.
+ *
+ * @param PDO $db
+ * @param int $roleid
+ * @param int $applicantId
+ * @param int $userid
+ */
 function decideApplication($db, $roleid, $applicantId, $userid) {
     if (!decisionReady($db)) {
         respond(503, ['error' => 'Application decisions are not installed yet. Run migrate.sql on the database.']);
@@ -604,6 +723,14 @@ function decideApplication($db, $roleid, $applicantId, $userid) {
     ]]);
 }
 
+/**
+ * Returns whether the user is a member of an organization.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @param int $userid
+ * @return bool
+ */
 function isOrgMember($db, $organizationid, $userid) {
     $stmt = $db->prepare(
         'SELECT 1 FROM organization_members WHERE organizationid = :org AND userid = :userid LIMIT 1'
@@ -612,6 +739,15 @@ function isOrgMember($db, $organizationid, $userid) {
     return (bool) $stmt->fetch();
 }
 
+/**
+ * Sends a direct message about a role decision to an applicant.
+ *
+ * @param PDO $db
+ * @param int $fromId
+ * @param int $toId
+ * @param string $body
+ * @param int|null $organizationid
+ */
 function sendDirectNotice($db, $fromId, $toId, $body, $organizationid) {
     if ($fromId === $toId) {
         return;
@@ -655,6 +791,12 @@ function sendDirectNotice($db, $fromId, $toId, $body, $organizationid) {
     $touch->execute([':cid' => $conversationid]);
 }
 
+/**
+ * Maps a PDOException to a 503 (missing tables) or 500 response.
+ *
+ * @param PDOException $e
+ * @param string $fallback
+ */
 function roleFail($e, $fallback) {
     $detail = $e->getMessage();
     $missing = $e->getCode() === '42S02' || strpos($detail, 'Base table or view not found') !== false;

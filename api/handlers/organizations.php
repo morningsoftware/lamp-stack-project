@@ -68,6 +68,13 @@ if ($sub === 'members') {
 
 respond(404, ['error' => 'Not found']);
 
+/**
+ * Lists organizations with membership, open-role and member counts.
+ * `?mine=1` restricts the list to organizations the user belongs to.
+ *
+ * @param PDO $db
+ * @param int $userid
+ */
 function listOrganizations($db, $userid) {
     $mine = isset($_GET['mine']) && $_GET['mine'] === '1';
     $sql = 'SELECT o.organizationid, o.name, o.slug, o.description, o.location, o.website,
@@ -105,6 +112,12 @@ function listOrganizations($db, $userid) {
     respond(200, ['data' => $orgs]);
 }
 
+/**
+ * Creates an organization and adds the creator as its owner.
+ *
+ * @param PDO $db
+ * @param int $userid
+ */
 function createOrganization($db, $userid) {
     $body = getRequestBody();
     requireFields($body, ['name']);
@@ -156,6 +169,13 @@ function createOrganization($db, $userid) {
     respond(201, ['data' => ['organizationid' => $organizationid, 'slug' => $slug]]);
 }
 
+/**
+ * Returns an organization with its members and roles.
+ *
+ * @param PDO $db
+ * @param array $org
+ * @param int $userid
+ */
 function getOrganization($db, $org, $userid) {
     $membership = membershipOf($db, (int) $org['organizationid'], $userid);
     $shaped = shapeOrganization($org, $membership);
@@ -166,6 +186,13 @@ function getOrganization($db, $org, $userid) {
     respond(200, ['data' => $shaped]);
 }
 
+/**
+ * Updates an organization's name, address and profile fields (owner only).
+ *
+ * @param PDO $db
+ * @param array $org
+ * @param int $userid
+ */
 function updateOrganization($db, $org, $userid) {
     requireOwner($db, (int) $org['organizationid'], $userid);
     $body = getRequestBody();
@@ -207,6 +234,13 @@ function updateOrganization($db, $org, $userid) {
     respond(200, ['data' => ['organizationid' => (int) $org['organizationid'], 'slug' => $slug]]);
 }
 
+/**
+ * Deletes an organization and everything posted under it (owner only).
+ *
+ * @param PDO $db
+ * @param array $org
+ * @param int $userid
+ */
 function deleteOrganization($db, $org, $userid) {
     requireOwner($db, (int) $org['organizationid'], $userid);
     try {
@@ -218,6 +252,13 @@ function deleteOrganization($db, $org, $userid) {
     respond(200, ['data' => ['message' => 'Organization deleted']]);
 }
 
+/**
+ * Adds a user to an organization by login (owner only).
+ *
+ * @param PDO $db
+ * @param array $org
+ * @param int $userid
+ */
 function addOrganizationMember($db, $org, $userid) {
     $organizationid = (int) $org['organizationid'];
     requireOwner($db, $organizationid, $userid);
@@ -249,6 +290,14 @@ function addOrganizationMember($db, $org, $userid) {
     respond(201, ['data' => ['userid' => $memberId]]);
 }
 
+/**
+ * Removes a member from an organization (owner only, last-owner guard).
+ *
+ * @param PDO $db
+ * @param array $org
+ * @param int $userid
+ * @param int $memberId
+ */
 function removeOrganizationMember($db, $org, $userid, $memberId) {
     $organizationid = (int) $org['organizationid'];
     requireOwner($db, $organizationid, $userid);
@@ -268,6 +317,13 @@ function removeOrganizationMember($db, $org, $userid, $memberId) {
     respond(200, ['data' => ['message' => 'Member removed']]);
 }
 
+/**
+ * Finds an organization by its slug or numeric id, or responds 404.
+ *
+ * @param PDO $db
+ * @param string $key
+ * @return array
+ */
 function findOrganization($db, $key) {
     $key = rawurldecode((string) $key);
     try {
@@ -291,6 +347,13 @@ function findOrganization($db, $key) {
     return $org;
 }
 
+/**
+ * Shapes an organization row for the API response.
+ *
+ * @param array $row
+ * @param string|null $membership
+ * @return array
+ */
 function shapeOrganization($row, $membership = null) {
     if ($membership === null && array_key_exists('membership', $row)) {
         $membership = $row['membership'];
@@ -314,6 +377,13 @@ function shapeOrganization($row, $membership = null) {
     return $shaped;
 }
 
+/**
+ * Returns an organization's members.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @return array
+ */
 function organizationMembers($db, $organizationid) {
     $stmt = $db->prepare(
         'SELECT u.userid, u.loginuid, u.displayname, u.firstname, u.lastname, m.membership
@@ -335,6 +405,14 @@ function organizationMembers($db, $organizationid) {
     return $members;
 }
 
+/**
+ * Returns an organization's roles, with applicants for members.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @param int $userid
+ * @return array
+ */
 function organizationRoles($db, $organizationid, $userid) {
     try {
     $stmt = $db->prepare(
@@ -394,6 +472,14 @@ function organizationRoles($db, $organizationid, $userid) {
     return $roles;
 }
 
+/**
+ * Returns the user's membership role in an organization, or null.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @param int $userid
+ * @return string|null
+ */
 function membershipOf($db, $organizationid, $userid) {
     $stmt = $db->prepare(
         'SELECT membership FROM organization_members
@@ -404,12 +490,26 @@ function membershipOf($db, $organizationid, $userid) {
     return $row ? $row['membership'] : null;
 }
 
+/**
+ * Responds 403 unless the user owns the organization.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @param int $userid
+ */
 function requireOwner($db, $organizationid, $userid) {
     if (membershipOf($db, $organizationid, $userid) !== 'owner') {
         respond(403, ['error' => 'Only an owner can do that']);
     }
 }
 
+/**
+ * Counts an organization's owners.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @return int
+ */
 function countOwners($db, $organizationid) {
     $stmt = $db->prepare(
         'SELECT COUNT(*) FROM organization_members
@@ -419,12 +519,26 @@ function countOwners($db, $organizationid) {
     return (int) $stmt->fetchColumn();
 }
 
+/**
+ * Counts an organization's members.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @return int
+ */
 function countMembers($db, $organizationid) {
     $stmt = $db->prepare('SELECT COUNT(*) FROM organization_members WHERE organizationid = :id');
     $stmt->execute([':id' => $organizationid]);
     return (int) $stmt->fetchColumn();
 }
 
+/**
+ * Counts an organization's open roles.
+ *
+ * @param PDO $db
+ * @param int $organizationid
+ * @return int
+ */
 function countOpenRoles($db, $organizationid) {
     $stmt = $db->prepare(
         'SELECT COUNT(*) FROM roles WHERE organizationid = :id AND status = \'open\''
@@ -433,6 +547,12 @@ function countOpenRoles($db, $organizationid) {
     return (int) $stmt->fetchColumn();
 }
 
+/**
+ * Normalizes a value into a URL-safe slug.
+ *
+ * @param string $value
+ * @return string
+ */
 function slugify($value) {
     $slug = strtolower($value);
     $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
@@ -443,6 +563,14 @@ function slugify($value) {
     return substr($slug, 0, 50);
 }
 
+/**
+ * Returns a slug unique among organizations, appending a suffix when needed.
+ *
+ * @param PDO $db
+ * @param string $slug
+ * @param bool $exact
+ * @return string
+ */
 function uniqueSlug($db, $slug, $exact) {
     $stmt = $db->prepare('SELECT 1 FROM organizations WHERE slug = :slug LIMIT 1');
     $stmt->execute([':slug' => $slug]);
@@ -463,6 +591,12 @@ function uniqueSlug($db, $slug, $exact) {
     respond(409, ['error' => 'Could not choose a unique address for this organization']);
 }
 
+/**
+ * Lists the user's pending organization invitations.
+ *
+ * @param PDO $db
+ * @param int $userid
+ */
 function listMyInvitations($db, $userid) {
     try {
         $stmt = $db->prepare(
@@ -501,6 +635,13 @@ function listMyInvitations($db, $userid) {
     respond(200, ['data' => $invites]);
 }
 
+/**
+ * Accepts an invitation and joins the organization.
+ *
+ * @param PDO $db
+ * @param int $invitationId
+ * @param int $userid
+ */
 function acceptInvitation($db, $invitationId, $userid) {
     $invite = fetchInvitation($db, $invitationId, $userid);
     try {
@@ -529,6 +670,13 @@ function acceptInvitation($db, $invitationId, $userid) {
     respond(200, ['data' => ['invitationid' => $invitationId, 'status' => 'accepted']]);
 }
 
+/**
+ * Declines a pending organization invitation.
+ *
+ * @param PDO $db
+ * @param int $invitationId
+ * @param int $userid
+ */
 function declineInvitation($db, $invitationId, $userid) {
     fetchInvitation($db, $invitationId, $userid);
     try {
@@ -547,6 +695,14 @@ function declineInvitation($db, $invitationId, $userid) {
     respond(200, ['data' => ['invitationid' => $invitationId, 'status' => 'declined']]);
 }
 
+/**
+ * Fetches a pending invitation for the user, or responds 404.
+ *
+ * @param PDO $db
+ * @param int $invitationId
+ * @param int $userid
+ * @return array
+ */
 function fetchInvitation($db, $invitationId, $userid) {
     try {
         $stmt = $db->prepare(
@@ -570,6 +726,12 @@ function fetchInvitation($db, $invitationId, $userid) {
     return $invite;
 }
 
+/**
+ * Maps a PDOException to a 503 (missing tables) or 500 response.
+ *
+ * @param PDOException $e
+ * @param string $fallback
+ */
 function organizationFail($e, $fallback) {
     $detail = $e->getMessage();
     $missing = $e->getCode() === '42S02' || strpos($detail, 'Base table or view not found') !== false;
