@@ -573,13 +573,12 @@ function deleteMessage($db, $messageid) {
 }
 
 /**
- * Inserts a message and updates the conversation timestamp.
+ * Validates a message's share target: a role or an organization, never both.
+ * Responds with an error when both ids are set or when an id is unknown.
  *
  * @param PDO $db
- * @param int $conversationid
- * @param int $userid
- * @param string $body
- * @return int New message id
+ * @param array $body
+ * @return array Like ['roleid' => int|null, 'organizationid' => int|null]
  */
 function messageShareTarget($db, $body) {
     $roleid = isset($body['roleid']) ? (int) $body['roleid'] : 0;
@@ -606,6 +605,13 @@ function messageShareTarget($db, $body) {
     return ['roleid' => null, 'organizationid' => null];
 }
 
+/**
+ * Maps a raw message row to the API shape, attaching a `share` key
+ * describing the shared role or organization (or null when neither).
+ *
+ * @param array $row
+ * @return array
+ */
 function shapeSharedMessage($row) {
     $share = null;
     if (!empty($row['roleid'])) {
@@ -635,6 +641,18 @@ function shapeSharedMessage($row) {
     return $row;
 }
 
+/**
+ * Inserts a message and bumps the conversation's last_message_at.
+ * Falls back to the legacy column set when the share columns are missing.
+ *
+ * @param PDO $db
+ * @param int $conversationid
+ * @param int $userid
+ * @param string $body
+ * @param int|null $roleid
+ * @param int|null $organizationid
+ * @return int The new message id
+ */
 function insertMessage($db, $conversationid, $userid, $body, $roleid = null, $organizationid = null) {
     $stmt = $db->prepare(
         'INSERT INTO messages (conversationid, sender_userid, body, roleid, organizationid)

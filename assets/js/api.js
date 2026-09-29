@@ -18,6 +18,12 @@
 
     token: sessionStorage.getItem(tokenKey) || null,
 
+    /**
+     * Stores or clears the session token and broadcasts the change to other tabs.
+     *
+     * @param {string|null} token The bearer token, or null to clear.
+     * @param {boolean} [broadcast] Whether to notify other tabs.
+     */
     setToken(token, broadcast = true) {
       this.token = token || null;
       if (token) {
@@ -28,6 +34,15 @@
       if (broadcast && sessionChannel) sessionChannel.postMessage({ type: 'change', token: this.token });
     },
 
+    /**
+     * Sends an authenticated request and parses the JSON payload.
+     *
+     * @param {string} method The HTTP method.
+     * @param {string} path The API path.
+     * @param {Object} [body] Optional JSON body.
+     * @param {Object} [options] Extra options (etag, conditional).
+     * @returns {Promise<Object>} The parsed payload (data + meta).
+     */
     async request(method, path, body, options = {}) {
       const headers = {};
       if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -79,11 +94,25 @@
       } finally { clearTimeout(timer); }
     },
 
+    /**
+     * Sends a request and returns its data field.
+     *
+     * @param {string} method The HTTP method.
+     * @param {string} path The API path.
+     * @param {Object} [body] Optional JSON body.
+     * @returns {Promise<*>} The payload's data value.
+     */
     async data(method, path, body) {
       const payload = await this.request(method, path, body);
       return payload ? payload.data : null;
     },
 
+    /**
+     * Builds a query string from parameter values.
+     *
+     * @param {Object} params The query parameters.
+     * @returns {string} A '?'-prefixed query string, or ''.
+     */
     query(params) {
       const qs = new URLSearchParams();
       Object.keys(params).forEach((key) => {
@@ -212,6 +241,12 @@
     conversations() {
       return this.data('GET', '/conversations');
     },
+    /**
+     * Fetches the conversation list, returning a notModified flag on a 304.
+     *
+     * @param {string|null} etag The last known ETag.
+     * @returns {Promise<{notModified: boolean, etag?: string, data?: Array}>} The result.
+     */
     async conversationsIfChanged(etag) {
       const payload = await this.request('GET', '/conversations', undefined, { conditional: true, etag });
       if (payload.notModified) return { notModified: true };

@@ -380,7 +380,7 @@ function appBaseUrl() {
 }
 
 /**
- * True after migrate_applications.sql has added application decisions
+ * True after migrate.sql has added application decisions
  * and organization invitations.
  *
  * @param PDO $db

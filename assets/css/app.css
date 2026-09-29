@@ -14,6 +14,7 @@
   --accent: #131417;
   --accent-text: #ffffff;
   --danger: #c0392b;
+  --success: #3aa06a;
   --ring: 0 0 0 3px rgba(19, 20, 23, 0.14);
   --radius: 4px;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -32,6 +33,7 @@
   --accent: #e8eaee;
   --accent-text: #0b0c0e;
   --danger: #e06c5a;
+  --success: #4cc38a;
   --ring: 0 0 0 3px rgba(232, 234, 238, 0.18);
 }
 
@@ -48,6 +50,7 @@
     --accent: #e8eaee;
     --accent-text: #0b0c0e;
     --danger: #e06c5a;
+    --success: #4cc38a;
     --ring: 0 0 0 3px rgba(232, 234, 238, 0.18);
   }
 }
@@ -365,7 +368,7 @@ svg.spark { width: 76px; height: 18px; }
 .donut-slice:hover { opacity: 0.72; }
 .donut-svg text { fill: var(--text); font-family: var(--mono); text-anchor: middle; }
 .donut-total { font-size: 6px; font-weight: 700; }
-.donut-label { font-size: 2.5px; fill: var(--faint); letter-spacing: 0.05em; text-transform: uppercase; }
+.donut-label { font-size: 3px; fill: var(--faint); letter-spacing: 0.05em; text-transform: uppercase; }
 .donut-legend { max-height: 150px; overflow-y: auto; align-content: start; }
 .donut-legend .lname { min-width: 0; flex: 1; }
 
@@ -539,8 +542,8 @@ svg.spark { width: 76px; height: 18px; }
 .toast .dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex: none; }
 .toast.error { border-color: var(--danger); }
 .toast.error .dot { background: var(--danger); }
-.toast.success { border-color: #3aa06a; }
-.toast.success .dot { background: #3aa06a; }
+.toast.success { border-color: var(--success); }
+.toast.success .dot { background: var(--success); }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ---------- Modal ---------- */

@@ -10,17 +10,35 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+/**
+ * Escapes HTML-special characters so untrusted text renders as literal content.
+ *
+ * @param {*} value The value to escape.
+ * @returns {string} The escaped string.
+ */
   function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
   }
 
+/**
+ * Returns the initials of a display name, or '?' when it is empty.
+ *
+ * @param {string} name The display name.
+ * @returns {string} Uppercase initials.
+ */
   function initials(name) {
     const parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
     return parts.map((p) => p[0]).join('').toUpperCase() || '?';
   }
 
+/**
+ * Formats a count as a compact number (k / M).
+ *
+ * @param {number} n The number to format.
+ * @returns {string} The compact number string.
+ */
   function fmtNum(n) {
     const num = Number(n) || 0;
     if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
@@ -28,6 +46,12 @@
     return String(num);
   }
 
+/**
+ * Renders a relative 'time ago' label for a timestamp.
+ *
+ * @param {string|Date} value The timestamp.
+ * @returns {string} A relative label like '3h ago', or '' for no value.
+ */
   function timeAgo(value) {
     if (!value) return '';
     const then = new Date(String(value).replace(' ', 'T'));
@@ -43,6 +67,13 @@
     return then.toLocaleDateString();
   }
 
+/**
+ * Returns a debounced wrapper that delays calls until pauses in activity.
+ *
+ * @param {Function} fn The function to debounce.
+ * @param {number} wait The quiet period in milliseconds.
+ * @returns {Function} The debounced wrapper.
+ */
   function debounce(fn, wait) {
     let timer;
     function debounced() {
@@ -54,6 +85,12 @@
     return debounced;
   }
 
+/**
+ * Derives a stable color for a language name.
+ *
+ * @param {string} lang The language name.
+ * @returns {string} A CSS color.
+ */
   function langColor(lang) {
     if (!lang) return '#8a8e98';
     let hash = 0;
@@ -98,6 +135,12 @@
 
   /* ---------------- Toast ---------------- */
 
+/**
+ * Shows a transient toast notification.
+ *
+ * @param {string} message The message text.
+ * @param {string} [type] The toast variant (info, success, error).
+ */
   function toast(message, type = 'info') {
     const root = $('#toast-root');
     const node = document.createElement('div');
@@ -127,14 +170,33 @@
 
   /* ---------------- Avatars ---------------- */
 
+/**
+ * Returns the best available display name for a developer.
+ *
+ * @param {Object} dev The developer object.
+ * @returns {string} The display name.
+ */
   function displayNameOf(dev) {
     return dev.displayName || dev.displayname || dev.name || dev.login || '?';
   }
 
+/**
+ * Returns the best available avatar URL for a developer.
+ *
+ * @param {Object} dev The developer object.
+ * @returns {string} The avatar URL (may be '').
+ */
   function avatarUrlOf(dev) {
     return dev.avatarUrl || dev.avatar || dev.avatar_url || '';
   }
 
+/**
+ * Renders an avatar element for a developer.
+ *
+ * @param {Object} dev The developer object.
+ * @param {string} [size] A size class suffix (e.g. 'sm').
+ * @returns {string} The avatar HTML.
+ */
   function avatarHtml(dev, size = '') {
     const name = displayNameOf(dev);
     const url = avatarUrlOf(dev);
@@ -154,11 +216,25 @@
     }
   }, true);
 
+/**
+ * Returns languages not already covered by the given shared skills.
+ *
+ * @param {Array<Object>} skills Shared skills.
+ * @param {Array<Object>} languages Languages to filter.
+ * @returns {Array<Object>} The languages unique to the list.
+ */
   function uniqueSharedLanguages(skills, languages) {
     const names = new Set((skills || []).map((s) => String(s).toLowerCase()));
     return (languages || []).filter((l) => !names.has(String(l).toLowerCase()));
   }
 
+/**
+ * Renders a developer's skills as chip HTML.
+ *
+ * @param {Array<Object>} skills The skills.
+ * @param {number} [limit] Maximum chips to render.
+ * @returns {string} The chips HTML.
+ */
   function skillChips(skills, limit) {
     const list = (skills || []).slice(0, limit || 30);
     if (!list.length) return '<span class="empty-inline">none listed.</span>';
@@ -169,11 +245,24 @@
     ).join('');
   }
 
+/**
+ * Renders a single profile stat cell.
+ *
+ * @param {string} label The stat label.
+ * @param {string|number} value The stat value.
+ * @returns {string} The stat cell HTML.
+ */
   function statCell(label, value) {
     return '<div class="stat-cell"><div class="stat-value">' + escapeHtml(value) +
       '</div><div class="stat-label">' + escapeHtml(label) + '</div></div>';
   }
 
+/**
+ * Renders the language distribution bar.
+ *
+ * @param {Array<Object>} languages Language rows with repos counts.
+ * @returns {string} The bar HTML.
+ */
   function langBarHtml(languages) {
     const total = languages.reduce((sum, l) => sum + l.repos, 0);
     if (!total) return '';
@@ -182,6 +271,12 @@
     ).join('') + '</div>';
   }
 
+/**
+ * Renders the language legend with color dots.
+ *
+ * @param {Array<Object>} languages Language rows.
+ * @returns {string} The legend HTML.
+ */
   function langLegend(languages) {
     return '<div class="legend">' + languages.map((l) =>
       '<div class="legend-item"><span class="dot" style="background:' + langColor(l.language) + '"></span>' +
@@ -190,6 +285,12 @@
     ).join('') + '</div>';
   }
 
+/**
+ * Builds the 84-day commit activity heatmap.
+ *
+ * @param {Array<Object>} repos Repositories with daily_commits data.
+ * @returns {string} The heatmap HTML.
+ */
   function activityHeatmap(repos) {
     const days = new Array(84).fill(0);
     (repos || []).forEach((r) => {
@@ -228,6 +329,11 @@
       '</div>';
   }
 
+/**
+ * Wires hover tooltips on the activity heatmap.
+ *
+ * @param {HTMLElement} root The scope containing the heatmap.
+ */
   function wireHeatmap(root) {
     const wrap = root.querySelector('.heatmap-wrap');
     if (!wrap) return;
@@ -250,6 +356,12 @@
     wrap.addEventListener('mouseleave', () => tip.classList.remove('show'));
   }
 
+/**
+ * Normalizes a repository's daily commits into an array.
+ *
+ * @param {Object} repo The repository object.
+ * @returns {Array<number>} Daily commit counts.
+ */
   function repoDailyCommits(repo) {
     let data = repo.daily_commits;
     if (typeof data === 'string') {
@@ -258,11 +370,23 @@
     return (Array.isArray(data) ? data : []).map(Number);
   }
 
+/**
+ * Totals a repository's commits from daily or 30-day data.
+ *
+ * @param {Object} repo The repository object.
+ * @returns {number} The commit total.
+ */
   function repoCommitTotal(repo) {
     const fromDaily = repoDailyCommits(repo).reduce((sum, v) => sum + (v || 0), 0);
     return fromDaily || Number(repo.commits_30d) || 0;
   }
 
+/**
+ * Renders the repository commit donut chart.
+ *
+ * @param {Array<Object>} repos The repositories.
+ * @returns {string} The chart HTML.
+ */
   function repoCommitChart(repos) {
     const data = (repos || [])
       .map((repo) => ({ name: repo.name, commits: repoCommitTotal(repo) }))
@@ -306,6 +430,12 @@
       '</div>';
   }
 
+/**
+ * Renders the weekly activity section (donut + bars).
+ *
+ * @param {Array<Object>} repos The repositories.
+ * @returns {string} The section HTML.
+ */
   function activityCharts(repos) {
     return '<div class="activity-grid">' +
       '<div class="panel activity-card"><h3 class="section-title">weekly activity</h3>' +
@@ -315,6 +445,12 @@
       '</div>';
   }
 
+/**
+ * Renders the proficiency meter for a skill level.
+ *
+ * @param {string} proficiency The proficiency label.
+ * @returns {string} The meter HTML ('' when unknown).
+ */
   function proficiencyMeter(proficiency) {
     const level = { beginner: 1, intermediate: 2, advanced: 3, expert: 4 }[String(proficiency || '').toLowerCase()] || 0;
     if (!level) return '';
@@ -323,6 +459,12 @@
     return '<span class="prof-meter">' + segs + '</span>';
   }
 
+/**
+ * Renders one repository row for the GitHub section.
+ *
+ * @param {Object} repo The repository object.
+ * @returns {string} The row HTML.
+ */
   function repoRow(repo) {
     const stars = repo.stars != null ? repo.stars : 0;
     const forks = repo.forks != null ? repo.forks : 0;
@@ -343,6 +485,12 @@
       sparkline(repo.weekly_commits) + '</span></a>';
   }
 
+/**
+ * Renders a sparkline from weekly commit counts.
+ *
+ * @param {Array<number>|string} weekly The weekly commit data.
+ * @returns {string} The sparkline SVG.
+ */
   function sparkline(weekly) {
     let data = weekly;
     if (typeof data === 'string') {
@@ -360,11 +508,26 @@
     return '<svg class="spark" width="' + W + '" height="' + H + '" aria-hidden="true">' + bars + '</svg>';
   }
 
+/**
+ * Renders loading skeleton placeholders.
+ *
+ * @param {number} [lines] How many placeholder lines.
+ * @returns {string} The skeleton HTML.
+ */
   function skeleton(lines) {
     return '<div class="stack">' + Array.from({ length: lines || 4 }, () =>
       '<div class="skeleton sk-line" style="height:44px"></div>').join('') + '</div>';
   }
 
+/**
+ * Renders an empty-state block.
+ *
+ * @param {string} icon The icon markup.
+ * @param {string} title The title.
+ * @param {string} text The description.
+ * @param {string} [action] Optional action button HTML.
+ * @returns {string} The empty-state HTML.
+ */
   function emptyState(icon, title, text, action) {
     return '<div class="empty"><div class="big">' + icon + '</div><h2>' +
       escapeHtml(title) + '</h2><p>' + escapeHtml(text) + '</p>' + (action || '') + '</div>';
@@ -372,6 +535,11 @@
 
   /* ---------------- Auth ---------------- */
 
+/**
+ * Loads the authenticated user into state from the session token.
+ *
+ * @returns {Promise<void>}
+ */
   async function resolveSession() {
     const token = API.token;
     if (!token) return;
@@ -386,6 +554,9 @@
     }
   }
 
+/**
+ * Renders the top-nav profile slot and nav item states.
+ */
   function renderProfileSlot() {
     const slot = $('#profile-slot');
     const navContacts = $('#nav-contacts');
@@ -467,6 +638,15 @@
 
   let modalOpener = null;
 
+/**
+ * Renders a labeled form field.
+ *
+ * @param {string} name The input name.
+ * @param {string} label The field label.
+ * @param {Object} [options] Input attributes.
+ * @param {string} [value] The initial value.
+ * @returns {string} The field HTML.
+ */
   function field(name, label, options = {}, value = '') {
     const attrs = Object.entries(options).map(([key, val]) =>
       val === false ? '' : ' ' + key + (val === true ? '' : '="' + escapeHtml(val) + '"')).join('');
@@ -474,16 +654,37 @@
       '<input class="input" id="field-' + name + '" name="' + name + '" value="' + escapeHtml(value) + '"' + attrs + '></div>';
   }
 
+/**
+ * Renders the new/confirm password fields.
+ *
+ * @returns {string} The fields HTML.
+ */
   function passwordFields() {
     return field('newPassword', 'new password', {type:'password', required:true, minlength:8, maxlength:72, autocomplete:'new-password'}) +
       field('confirmPassword', 'confirm password', {type:'password', required:true, minlength:8, maxlength:72, autocomplete:'new-password'});
   }
 
+/**
+ * Validates that the new and confirm passwords match and fit bcrypt.
+ *
+ * @param {Object} data The form data.
+ */
   function checkPassword(data) {
     if (data.newPassword !== data.confirmPassword) throw new Error('Passwords do not match.');
     if (new TextEncoder().encode(data.newPassword).length > 72) throw new Error('Use a password of at most 72 bytes.');
   }
 
+/**
+ * Opens a modal form dialog.
+ *
+ * @param {string} title The dialog title.
+ * @param {string} description The dialog description.
+ * @param {string} fields The form fields HTML.
+ * @param {string} submitLabel The submit button label.
+ * @param {Function} onSubmit Called with the form data on submit.
+ * @param {string} [footer] Optional footer HTML.
+ * @param {boolean} [showCancel] Whether to show the cancel button.
+ */
   function formDialog(title, description, fields, submitLabel, onSubmit, footer = '', showCancel = true) {
     const host = $('#modal-root');
     if (!host.firstElementChild) modalOpener = document.activeElement;
@@ -533,6 +734,11 @@
     if (first) first.focus();
   }
 
+/**
+ * Opens the sign-in / register modal.
+ *
+ * @param {string} [mode] 'login' or 'register'.
+ */
   function openAuthModal(mode = 'login') {
     const registering = mode === 'register';
     const fields = field('login', registering ? 'username' : 'username or email', {required:true, maxlength:registering ? 50 : 255, minlength:registering ? 3 : 1, autocomplete:'username'}) +
@@ -567,6 +773,13 @@
     if (ghBtn) ghBtn.addEventListener('click', () => { location.href = API.base + '/oauth/github'; });
   }
 
+/**
+ * Opens a modal dialog with action buttons.
+ *
+ * @param {string} title The dialog title.
+ * @param {string} text The dialog body text.
+ * @param {string} actions The action buttons HTML.
+ */
   function messageDialog(title, text, actions) {
     const host = $('#modal-root');
     if (!host.firstElementChild) modalOpener = document.activeElement;
@@ -579,6 +792,9 @@
     $('#modal-backdrop').addEventListener('click', e => { if (e.target.id === 'modal-backdrop') closeModal(); });
   }
 
+/**
+ * Closes the open modal and restores focus.
+ */
   function closeModal() {
     if ($('#dialog-form')?.dataset.busy) return;
     $('#modal-root').innerHTML = '';
@@ -601,6 +817,11 @@
 
   /* ---------------- Routing ---------------- */
 
+/**
+ * Parses the hash route into path parts and query parameters.
+ *
+ * @returns {{parts: Array<string>, query: Object}} The route parts and query.
+ */
   function parseHash() {
     const raw = location.hash.replace(/^#\/?/, '');
     const [pathPart, queryPart] = raw.split('?');
@@ -609,6 +830,12 @@
     return { parts, query };
   }
 
+/**
+ * Renders the sign-in gate when logged out, returning whether to continue.
+ *
+ * @param {HTMLElement} root The view root.
+ * @returns {boolean} True when the user is signed in.
+ */
   function requireGate(root) {
     if (isLoggedIn()) return true;
     root.innerHTML = '<div class="container">' + emptyState(ICON.user, 'sign in required',
@@ -618,6 +845,11 @@
     return false;
   }
 
+/**
+ * Routes the current hash to the matching view.
+ *
+ * @returns {Promise<void>}
+ */
   async function render() {
     if (state.maintenance) { renderMaintenance(); return; }
     stopMessagesPolling();
@@ -653,6 +885,9 @@
     }
   }
 
+/**
+ * Renders the maintenance screen.
+ */
   function renderMaintenance() {
     $('#app').innerHTML =
       '<div class="home"><div class="home-inner" style="max-width:480px;text-align:center">' +
@@ -661,6 +896,12 @@
       '</div></div>';
   }
 
+/**
+ * Completes the GitHub OAuth callback and stores the session token.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters (token, error).
+ */
   function handleOauthCallback(root, query) {
     if (query.error) {
       history.replaceState(null, '', '#/oauth');
@@ -687,6 +928,13 @@
 
   /* ---------------- Landing ---------------- */
 
+/**
+ * Renders the landing page, or the user's profile when signed in.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function viewHome(root, query) {
     if (isLoggedIn()) {
       await viewProfile(root, state.user.userid);
@@ -744,6 +992,12 @@
 
   const browseState = { filters: null, facets: null, offset: 0, total: 0, loading: false };
 
+/**
+ * Reads browse filters from the hash query.
+ *
+ * @param {Object} query The parsed query parameters.
+ * @returns {Object} The filter state.
+ */
   function readBrowseFilters(query) {
     return {
       q: query.q || '',
@@ -760,6 +1014,11 @@
     };
   }
 
+/**
+ * Persists browse filters into the hash without a reload.
+ *
+ * @param {Object} filters The filter state.
+ */
   function writeBrowseFilters(filters) {
     const params = new URLSearchParams();
     if (filters.q) params.set('q', filters.q);
@@ -777,6 +1036,13 @@
     history.replaceState(null, '', '#/browse' + (qs ? '?' + qs : ''));
   }
 
+/**
+ * Renders the browse page (search, filters, developer/role grid).
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function viewBrowse(root, query) {
     if (!requireGate(root)) return;
 
@@ -832,18 +1098,29 @@
     loadBrowse(true);
   }
 
+/**
+ * Persists filters and reloads the browse results.
+ */
   function applyBrowse() {
     writeBrowseFilters(browseState.filters);
     browseState.offset = 0;
     loadBrowse(true);
   }
 
+/**
+ * Switches the browse view between developers and roles.
+ *
+ * @param {string} type 'developers' or 'roles'.
+ */
   function setBrowseType(type) {
     browseState.filters.type = type;
     syncBrowseLayout();
     applyBrowse();
   }
 
+/**
+ * Syncs the browse toggle highlight and section visibility to the type.
+ */
   function syncBrowseLayout() {
     const rolesOnly = browseState.filters.type === 'roles';
 
@@ -859,6 +1136,15 @@
   }
 
 
+/**
+ * Builds a token multi-select control inside the host element.
+ *
+ * @param {HTMLElement} host The container.
+ * @param {Array<string>} options The selectable options.
+ * @param {Array<string>} selected The selected values (mutated in place).
+ * @param {string} placeholder The input placeholder.
+ * @param {Function} onChange Called when the selection changes.
+ */
   function createMultiSelect(host, options, selected, placeholder, onChange) {
     host.innerHTML =
       '<div class="ms" tabindex="-1">' +
@@ -943,6 +1229,9 @@
     drawTokens();
   }
 
+/**
+ * Renders the browse filter panel and wires its controls.
+ */
   function drawFilters() {
     const el = $('#filters');
     const f = browseState.filters;
@@ -1010,6 +1299,12 @@
     $('#type-roles').addEventListener('click', () => setBrowseType('roles'));
   }
 
+/**
+ * Renders a developer card for the browse grid.
+ *
+ * @param {Object} dev The developer object.
+ * @returns {string} The card HTML.
+ */
   function devCardHtml(dev) {
     const shared = (dev.sharedSkills || []).length +
       uniqueSharedLanguages(dev.sharedSkills, dev.sharedLanguages).length;
@@ -1042,6 +1337,11 @@
       '</article>';
   }
 
+/**
+ * Wires follow and message buttons within a scope.
+ *
+ * @param {HTMLElement} scope The element to search.
+ */
   function wireDevActions(scope) {
     $$('[data-follow]', scope).forEach((btn) => {
       if (btn.dataset.wired) return;
@@ -1070,6 +1370,12 @@
     });
   }
 
+/**
+ * Loads the browse grid for the current type and filters.
+ *
+ * @param {boolean} reset Whether to clear and reload from the start.
+ * @returns {Promise<void>}
+ */
   async function loadBrowse(reset) {
     if (browseState.loading) return;
     browseState.loading = true;
@@ -1131,6 +1437,14 @@
     }
   }
 
+/**
+ * Checks whether a role matches the selected skills.
+ *
+ * @param {Object} role The role object.
+ * @param {Array<string>} skills The selected skill names.
+ * @param {string} mode 'any' or 'all'.
+ * @returns {boolean} True when the role matches.
+ */
   function roleMatchesSkills(role, skills, mode) {
     if (!skills.length) return true;
     const names = (role.skills || []).map((skill) => String(skill.name || '').toLowerCase());
@@ -1139,6 +1453,11 @@
     return wanted.some((skill) => names.includes(skill));
   }
 
+/**
+ * Loads matching open roles into the browse grid.
+ *
+ * @returns {Promise<void>}
+ */
   async function loadBrowseRolesGrid() {
     const grid = $('#browse-grid');
     const count = $('#browse-count');
@@ -1159,6 +1478,11 @@
     bindRoleActions(grid);
   }
 
+/**
+ * Loads the suggested developers strip on the browse page.
+ *
+ * @returns {Promise<void>}
+ */
   async function loadSuggestions() {
     const el = $('#suggestions');
     if (!el || !isLoggedIn()) return;
@@ -1174,6 +1498,12 @@
     }
   }
 
+/**
+ * Renders a suggested developer card.
+ *
+ * @param {Object} dev The developer object.
+ * @returns {string} The card HTML.
+ */
   function suggestCardHtml(dev) {
     const reasons = []
       .concat((dev.sharedSkills || []).slice(0, 3))
@@ -1189,6 +1519,13 @@
 
   /* ---------------- Contacts / Following ---------------- */
 
+/**
+ * Renders pagination controls into the host.
+ *
+ * @param {HTMLElement} host The container.
+ * @param {Object} meta Pagination metadata (total, page, limit).
+ * @param {Function} onPage Called with the page number when changed.
+ */
   function pagination(host, meta, onPage) {
     if (!meta || !Number.isFinite(Number(meta.total)) || !Number(meta.limit)) return;
     const page = Math.max(1,Number(meta.page) || 1);
@@ -1203,10 +1540,23 @@
     host.appendChild(nav);
   }
 
+/**
+ * Returns a contact's display name from the available fields.
+ *
+ * @param {Object} contact The contact object.
+ * @returns {string} The display name.
+ */
   function contactName(contact) {
     return [contact.firstName ?? contact.firstname,contact.lastName ?? contact.lastname].filter(Boolean).join(' ').trim() || contact.displayName || contact.email || 'unnamed contact';
   }
 
+/**
+ * Renders the contacts / following page with search and pagination.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} [query] The query parameters.
+ * @returns {Promise<void>}
+ */
   async function viewFollowing(root, query = {}) {
     if (!requireGate(root)) return;
     root.innerHTML = '<div class="container"><div class="spread wrap"><div><h1 class="page-title">contacts</h1></div>' +
@@ -1294,6 +1644,12 @@
     await load();
   }
 
+/**
+ * Opens the add/edit contact dialog.
+ *
+ * @param {Object|null} contact The contact to edit, or null to create.
+ * @param {Function} onSaved Called after a successful save.
+ */
   function editContact(contact, onSaved) {
     const c = contact || {};
     const fields = (contact ? field('contactid','contact ID',{readonly:true},c.contactid) : '') +
@@ -1314,6 +1670,13 @@
     });
   }
 
+/**
+ * Resolves a login handle to a developer and renders their profile.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {string} login The login handle.
+ * @returns {Promise<void>}
+ */
   async function resolveByLogin(root, login) {
     if (!requireGate(root)) return;
     root.innerHTML = skeleton(2);
@@ -1335,6 +1698,13 @@
     }
   }
 
+/**
+ * Renders a developer's profile page.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {string|number} userid The user id.
+ * @returns {Promise<void>}
+ */
   async function viewProfile(root, userid) {
     if (!userid) {
       root.innerHTML = emptyState('404', 'not found', 'No developer was specified.');
@@ -1429,6 +1799,14 @@
     await loadGithub(root, profile, gh);
   }
 
+/**
+ * Renders the GitHub section of a profile.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} profile The profile object.
+ * @param {Object} gh The GitHub profile data.
+ * @returns {Promise<void>}
+ */
   async function loadGithub(root, profile, gh) {
     const section = $('#github-section');
     if (!section) return;
@@ -1486,6 +1864,12 @@
     }
   }
 
+/**
+ * Copies a share link for a developer profile.
+ *
+ * @param {Object} profile The profile object.
+ * @returns {Promise<void>}
+ */
   async function shareProfile(profile) {
     const url = location.origin + location.pathname + '#/u/' + profile.login;
     try {
@@ -1498,6 +1882,14 @@
 
   /* ---------------- Compare ---------------- */
 
+/**
+ * Wires an autocomplete suggestions dropdown to an input.
+ *
+ * @param {HTMLElement} inputEl The input element.
+ * @param {HTMLElement} suggestionsEl The suggestions container.
+ * @param {Array<Object>} candidates The candidate developers.
+ * @param {Function} onPick Called with the chosen developer.
+ */
   function attachAutocomplete(inputEl, suggestionsEl, candidates, onPick) {
     const render = () => {
       const q = inputEl.value.trim().toLowerCase();
@@ -1539,6 +1931,13 @@
     });
   }
 
+/**
+ * Renders the compare page.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function viewCompare(root, query) {
     if (!requireGate(root)) return;
     root.innerHTML = skeleton(4);
@@ -1596,6 +1995,13 @@
     drawCompare(a, b);
   }
 
+/**
+ * Renders the side-by-side comparison of two developers.
+ *
+ * @param {string|number} a First developer id.
+ * @param {string|number} b Second developer id.
+ * @returns {Promise<void>}
+ */
   async function drawCompare(a, b) {
     const result = $('#compare-result');
     if (!result) return;
@@ -1696,12 +2102,23 @@
 
   /* ---------------- Messaging ---------------- */
 
+/**
+ * Loads the developer directory into state (cached).
+ *
+ * @returns {Promise<void>}
+ */
   async function loadDirectory() {
     if (state.profiles.length) return;
     const payload = await API.profiles({ limit: 100 });
     state.profiles = payload.data || [];
   }
 
+/**
+ * Starts a direct conversation with a developer.
+ *
+ * @param {string|number} userid The recipient user id.
+ * @returns {Promise<void>}
+ */
   async function messageUser(userid) {
     if (!isLoggedIn()) return openAuthModal('login');
     if (state.user.userid === Number(userid)) return toast('that is you!', 'info');
@@ -1713,6 +2130,12 @@
     }
   }
 
+/**
+ * Returns a conversation's display title.
+ *
+ * @param {Object} convo The conversation object.
+ * @returns {string} The title.
+ */
   function conversationTitle(convo) {
     if (convo.name) return convo.name;
     const names = (convo.participants || []).map(displayNameOf);
@@ -1721,12 +2144,26 @@
     return names.slice(0, 3).join(', ') + ' +' + (names.length - 3);
   }
 
+/**
+ * Returns the avatar data for a conversation.
+ *
+ * @param {Object} convo The conversation object.
+ * @returns {Object} The avatar data.
+ */
   function conversationAvatar(convo) {
     const parts = convo.participants || [];
     if (parts.length === 1) return parts[0];
     return { displayName: conversationTitle(convo) };
   }
 
+/**
+ * Builds a people multi-select picker inside the host element.
+ *
+ * @param {HTMLElement} host The container.
+ * @param {Array<Object>} candidates The selectable people.
+ * @param {Array<Object>} selected The selected people (mutated in place).
+ * @param {Function} onChange Called when the selection changes.
+ */
   function createPeoplePicker(host, candidates, selected, onChange) {
     const xSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 
@@ -1809,6 +2246,9 @@
     drawTokens();
   }
 
+/**
+ * Opens the new message composer modal.
+ */
   function openNewMessageModal() {
     if (!isLoggedIn()) return openAuthModal('login');
     loadDirectory().then(() => {
@@ -1859,6 +2299,13 @@
     });
   }
 
+/**
+ * Opens the add people modal for a conversation.
+ *
+ * @param {number} conversationid The conversation id.
+ * @param {Array<number>} existingIds Participants already present.
+ * @param {Function} onDone Called after participants are added.
+ */
   function openAddPeopleModal(conversationid, existingIds, onDone) {
     loadDirectory().then(() => {
       const candidates = state.profiles.filter((p) =>
@@ -1900,6 +2347,9 @@
     });
   }
 
+/**
+ * Stops the messages polling loop.
+ */
   function stopMessagesPolling() {
     pollEpoch++;
     messagesPollingActive = false;
@@ -1910,6 +2360,11 @@
     }
   }
 
+/**
+ * Starts the messages polling loop for a conversation (or the list).
+ *
+ * @param {number|null} conversationid The open conversation id, or null.
+ */
   function startMessagesPolling(conversationid) {
     stopMessagesPolling();
     messagesPollingActive = true;
@@ -1917,6 +2372,9 @@
     scheduleMessagesPoll();
   }
 
+/**
+ * Schedules the next poll tick while the view is active and visible.
+ */
   function scheduleMessagesPoll() {
     if (!messagesPollingActive) return;
     if (document.visibilityState !== 'visible') return;
@@ -1924,6 +2382,12 @@
     messagesPollTimer = setTimeout(() => pollMessages(activeConversationId), 5000);
   }
 
+/**
+ * Runs one poll tick: refreshes the conversation list and open thread.
+ *
+ * @param {number|null} conversationid The open conversation id, or null.
+ * @returns {Promise<void>}
+ */
   async function pollMessages(conversationid) {
     if (pollInFlight) return;
     if (document.visibilityState !== 'visible') return;
@@ -1941,6 +2405,11 @@
     }
   }
 
+/**
+ * Fetches the conversation list only when its ETag changed.
+ *
+ * @returns {Promise<boolean>} True when the list changed.
+ */
   async function pollConversationList() {
     const result = await API.conversationsIfChanged(convoEtag);
     if (result.notModified) return false;
@@ -1949,6 +2418,12 @@
     return true;
   }
 
+/**
+ * Fetches and appends messages newer than the last seen id.
+ *
+ * @param {number} conversationid The open conversation id.
+ * @returns {Promise<void>}
+ */
   async function pollOpenThread(conversationid) {
     if (!conversationid) return;
     if (String(parseHash().parts[1]) !== String(conversationid)) return;
@@ -1966,6 +2441,13 @@
     if (convo) convo.unreadCount = 0;
   }
 
+/**
+ * Renders the messages page (list plus optional thread).
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {string|undefined} conversationid The open conversation id.
+ * @returns {Promise<void>}
+ */
   async function viewMessages(root, conversationid) {
     if (!requireGate(root)) return;
 
@@ -1994,6 +2476,9 @@
     }
   }
 
+/**
+ * Renders the conversation list with unread badges.
+ */
   function drawConvoList() {
     const list = $('.convo-list');
     if (!list) return;
@@ -2016,12 +2501,25 @@
       item.addEventListener('click', () => { location.hash = '#/messages/' + item.dataset.id; }));
   }
 
+/**
+ * Refreshes the conversation list and thread after a change.
+ *
+ * @param {number} conversationid The conversation id.
+ * @returns {Promise<void>}
+ */
   async function refreshConversation(conversationid) {
     state.convos = await API.conversations() || [];
     drawConvoList();
     await drawThread(conversationid);
   }
 
+/**
+ * Renders message bubbles for the thread.
+ *
+ * @param {Array<Object>} messages The messages.
+ * @param {boolean} isGroup Whether the conversation is a group.
+ * @returns {string} The bubbles HTML.
+ */
   function messageBubbles(messages, isGroup) {
     return messages.length
       ? messages.map((m) => {
@@ -2034,6 +2532,12 @@
       : '';
   }
 
+/**
+ * Appends new message bubbles to the open thread.
+ *
+ * @param {number} conversationid The conversation id.
+ * @param {Array<Object>} messages The new messages.
+ */
   function appendThreadMessages(conversationid, messages) {
     const body = $('#thread-body');
     if (!body || !messages.length) return;
@@ -2044,6 +2548,13 @@
     body.scrollTop = body.scrollHeight;
   }
 
+/**
+ * Renders the message thread with composer for a conversation.
+ *
+ * @param {number} conversationid The conversation id.
+ * @param {boolean} [quiet] Whether to avoid stealing focus.
+ * @returns {Promise<void>}
+ */
   async function drawThread(conversationid, quiet = false) {
     const thread = $('.thread');
     if (!thread) return;
@@ -2150,6 +2661,13 @@
 
   /* ---------------- Settings (profile editor) ---------------- */
 
+/**
+ * Renders the settings page and dispatches to the active tab.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function viewSettings(root, query) {
     if (!requireGate(root)) return;
     const tab = query.tab || 'profile';
@@ -2182,6 +2700,13 @@
     else panel.innerHTML = emptyState('?', 'unknown tab', 'Pick a settings tab.');
   }
 
+/**
+ * Renders the profile settings tab.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ * @param {number} userid The current user id.
+ * @returns {Promise<void>}
+ */
   async function settingsProfile(panel, userid) {
     const p = await API.profile(userid);
     panel.innerHTML =
@@ -2215,6 +2740,13 @@
     });
   }
 
+/**
+ * Renders the skills settings tab.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ * @param {number} userid The current user id.
+ * @returns {Promise<void>}
+ */
   async function settingsSkills(panel, userid) {
     const [catalog, mine] = await Promise.all([API.skills(), API.userSkills(userid)]);
     const rows = (mine || []).map((s) => ({ skillid: s.skillid, name: s.name, proficiency: s.proficiency || '' }));
@@ -2343,6 +2875,13 @@
     });
   }
 
+/**
+ * Renders the social links settings tab.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ * @param {number} userid The current user id.
+ * @returns {Promise<void>}
+ */
   async function settingsLinks(panel, userid) {
     const links = await API.profile(userid).then((p) => p.socialLinks || []);
     panel.innerHTML =
@@ -2387,6 +2926,13 @@
     });
   }
 
+/**
+ * Renders the GitHub connection settings tab.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ * @param {number} userid The current user id.
+ * @returns {Promise<void>}
+ */
   async function settingsGithub(panel, userid) {
     let gh = null;
     try { gh = await API.github(userid); } catch (e) { gh = null; }
@@ -2450,6 +2996,11 @@
     });
   }
 
+/**
+ * Renders the account (email/password) settings tab.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ */
   function settingsAccount(panel) {
     panel.innerHTML =
       '<form class="form-grid panel" style="padding:20px" id="account-form">' +
@@ -2478,6 +3029,13 @@
 
   /* ---------------- Admin ---------------- */
 
+/**
+ * Renders the admin page and dispatches to the active tab.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function viewAdmin(root, query) {
     if (!requireGate(root)) return;
     if (!state.user.isAdmin) {
@@ -2507,6 +3065,12 @@
     else await adminOverview(panel);
   }
 
+/**
+ * Renders the admin stats overview tab.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ * @returns {Promise<void>}
+ */
   async function adminOverview(panel) {
     try {
       const s = await API.adminStats();
@@ -2540,12 +3104,27 @@
     }
   }
 
+/**
+ * Renders an admin stat card.
+ *
+ * @param {string} label The stat label.
+ * @param {string|number} value The stat value.
+ * @param {string} [sub] Optional subtitle.
+ * @returns {string} The card HTML.
+ */
   function statCard(label, value, sub) {
     return '<div class="stat-card"><div class="stat-value">' + escapeHtml(value) + '</div>' +
       '<div class="stat-label">' + escapeHtml(label) + '</div>' +
       (sub ? '<div class="stat-sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
   }
 
+/**
+ * Renders the admin users tab with search and pagination.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function adminUsers(panel, query) {
     const q = query.q || '';
     const status = query.status || '';
@@ -2651,6 +3230,11 @@
     }
   }
 
+/**
+ * Opens the create admin dialog.
+ *
+ * @param {Function} onSaved Called after a successful creation.
+ */
   function createAdmin(onSaved) {
     const fields = field('login','username',{required:true,minlength:3,maxlength:50,autocomplete:'off'}) +
       field('email','email',{type:'email',required:true,maxlength:255,autocomplete:'off'}) +
@@ -2664,6 +3248,13 @@
     });
   }
 
+/**
+ * Renders the admin contacts tab.
+ *
+ * @param {HTMLElement} panel The tab content container.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function adminContactList(panel, query) {
     const userid = /^\d+$/.test(query.userid || '') ? query.userid : '';
     panel.innerHTML = '<h2 class="section-title">' + (userid ? 'contacts belonging to user #' + userid : 'all users’ contacts') + '</h2>' +
@@ -2698,6 +3289,12 @@
     await load();
   }
 
+/**
+ * Generates and shows a password reset link for a user.
+ *
+ * @param {number} userid The user id.
+ * @returns {Promise<void>}
+ */
   async function showResetLink(userid) {
     formDialog('create password reset link','Generate a single-use link for this user. The link expires in 60 minutes.','','generate link',async () => {
       const result = await API.adminReset(userid);
@@ -2720,6 +3317,13 @@
 
   /* ---------------- Password reset ---------------- */
 
+/**
+ * Renders the password reset page.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters.
+ * @returns {Promise<void>}
+ */
   async function viewReset(root, query) {
     const token = query.token || '';
     root.innerHTML =
@@ -2770,17 +3374,37 @@
 
   /* ---------------- Organizations and roles ---------------- */
 
+/**
+ * Returns the value only when it is an http(s) URL.
+ *
+ * @param {string} value The candidate URL.
+ * @returns {string} The safe URL, or ''.
+ */
   function safeHttpUrl(value) {
     const url = String(value || '').trim();
     return /^https?:\/\//i.test(url) ? url : '';
   }
 
+/**
+ * Renders a labeled textarea field.
+ *
+ * @param {string} name The field name.
+ * @param {string} label The field label.
+ * @param {string} value The initial value.
+ * @returns {string} The field HTML.
+ */
   function textArea(name, label, value) {
     return '<div class="field"><label for="field-' + name + '">' + escapeHtml(label) + '</label>' +
       '<textarea class="textarea" id="field-' + name + '" name="' + name + '" maxlength="4000">' +
       escapeHtml(value || '') + '</textarea></div>';
   }
 
+/**
+ * Renders the shared role/organization card inside a message.
+ *
+ * @param {Object|null} share The share payload.
+ * @returns {string} The card HTML.
+ */
   function shareCardHtml(share) {
     if (!share) return '';
     if (share.type === 'role') {
@@ -2791,6 +3415,13 @@
       escapeHtml(share.name || 'organization') + '</a>';
   }
 
+/**
+ * Opens the share-to-message modal for a role or organization.
+ *
+ * @param {string} kind 'role' or 'organization'.
+ * @param {number} id The role or organization id.
+ * @param {string} label The item name.
+ */
   function openShareModal(kind, id, label) {
     API.conversations().then((convos) => {
       convos = convos || [];
@@ -2819,6 +3450,11 @@
     }).catch((err) => toast(err.message, 'error'));
   }
 
+/**
+ * Wires role apply/withdraw buttons within a scope.
+ *
+ * @param {HTMLElement} scope The element to search.
+ */
   function bindRoleActions(scope) {
     $$('[data-apply]', scope).forEach((btn) => btn.addEventListener('click', async () => {
       btn.disabled = true;
@@ -2850,6 +3486,12 @@
     }));
   }
 
+/**
+ * Renders a role listing card.
+ *
+ * @param {Object} role The role object.
+ * @returns {string} The card HTML.
+ */
   function roleCard(role) {
     const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
     let apply = '';
@@ -2878,6 +3520,9 @@
       ICON.share + ' share</button></div></article>';
   }
 
+/**
+ * Opens the create organization dialog.
+ */
   function openCreateOrganization() {
     formDialog('create organization', 'You stay signed in with your user account. Creating an organization makes you its owner.',
       field('name', 'name', { required: true, maxlength: 100 }) +
@@ -2893,6 +3538,11 @@
       });
   }
 
+/**
+ * Opens the edit organization dialog.
+ *
+ * @param {Object} org The organization object.
+ */
   function openEditOrganization(org) {
     formDialog('edit organization', org.name,
       field('name', 'name', { required: true, maxlength: 100 }, org.name) +
@@ -2912,6 +3562,11 @@
       });
   }
 
+/**
+ * Opens the delete organization confirmation dialog.
+ *
+ * @param {Object} org The organization object.
+ */
   function confirmDeleteOrganization(org) {
     messageDialog('delete organization', 'Delete ' + org.name + ' and every role posted under it? Applications go with the roles. Messages that shared them keep their text.',
       '<button class="btn" type="button" data-close>cancel</button>' +
@@ -2931,6 +3586,12 @@
     });
   }
 
+/**
+ * Opens the edit role dialog.
+ *
+ * @param {Object} role The role object (or { roleid } stub).
+ * @returns {Promise<void>}
+ */
   async function openEditRole(role) {
     let full = role;
     let skillsKnown = Array.isArray(role.skills);
@@ -2960,6 +3621,12 @@
       });
   }
 
+/**
+ * Opens the delete role confirmation dialog.
+ *
+ * @param {Object} role The role object.
+ * @param {string} [orgSlug] The parent organization slug.
+ */
   function confirmDeleteRole(role, orgSlug) {
     messageDialog('delete role', 'Delete ' + (role.name || 'this role') + '? Its applications are removed. Messages that shared it keep their text.',
       '<button class="btn" type="button" data-close>cancel</button>' +
@@ -2979,6 +3646,11 @@
     });
   }
 
+/**
+ * Opens the add member dialog for an organization.
+ *
+ * @param {Object} org The organization object.
+ */
   function openAddMember(org) {
     formDialog('add member', 'They must already have a collab.dev account. They sign in with their own username.',
       field('login', 'username', { required: true, maxlength: 50 }),
@@ -2990,6 +3662,11 @@
       });
   }
 
+/**
+ * Opens the post role dialog for an organization.
+ *
+ * @param {Object} org The organization object.
+ */
   function openCreateRole(org) {
     const selected = [];
     formDialog('post a role', 'Skills must already exist in the catalog.',
@@ -3015,6 +3692,14 @@
     }).catch(() => {});
   }
 
+/**
+ * Renders the roles page, or a single role view.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {Object} query The query parameters.
+ * @param {string|undefined} roleid The role id when viewing one.
+ * @returns {Promise<void>}
+ */
   async function viewRoles(root, query, roleid) {
     if (!requireGate(root)) return;
     if (roleid) return viewRole(root, roleid);
@@ -3063,6 +3748,13 @@
     bindRoleActions(root);
   }
 
+/**
+ * Renders a single role with actions and applicants.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {string|number} roleid The role id.
+ * @returns {Promise<void>}
+ */
   async function viewRole(root, roleid) {
     const role = await API.role(roleid);
     const skills = (role.skills || []).map((s) => '<span class="chip">' + escapeHtml(s.name) + '</span>').join('');
@@ -3134,6 +3826,12 @@
     wireDevActions(root);
   }
 
+/**
+ * Renders one applicant row with accept/reject actions.
+ *
+ * @param {Object} person The applicant object.
+ * @returns {string} The row HTML.
+ */
   function applicantLine(person) {
     const decision = person.decision || 'pending';
     const decide = decision === 'pending'
@@ -3149,6 +3847,11 @@
       '<button class="btn btn-sm" type="button" data-message="' + person.userid + '">' + ICON.mail + ' message</button></div></div>';
   }
 
+/**
+ * Wires applicant accept/reject buttons within a scope.
+ *
+ * @param {HTMLElement} root The element to search.
+ */
   function bindApplicantActions(root) {
     $$('[data-decide]', root).forEach((btn) => {
       if (btn.dataset.wired) return;
@@ -3168,6 +3871,12 @@
     });
   }
 
+/**
+ * Renders an organization invitation card.
+ *
+ * @param {Object} invite The invitation object.
+ * @returns {string} The card HTML.
+ */
   function invitationCard(invite) {
     const role = invite.role && invite.role.name ? ' for ' + escapeHtml(invite.role.name) : '';
     return '<div class="panel listing-card spread"><div><a href="#/orgs/' + encodeURIComponent(invite.organization.slug) + '"><b>' +
@@ -3178,6 +3887,11 @@
       '<button class="btn btn-sm" type="button" data-decline-invite="' + invite.invitationid + '">decline</button></div></div>';
   }
 
+/**
+ * Wires invitation join/decline buttons within a scope.
+ *
+ * @param {HTMLElement} root The element to search.
+ */
   function bindInvitations(root) {
     $$('[data-join-invite]', root).forEach((btn) => {
       if (btn.dataset.wired) return;
@@ -3191,6 +3905,13 @@
     });
   }
 
+/**
+ * Accepts or declines an organization invitation.
+ *
+ * @param {HTMLElement} btn The clicked button.
+ * @param {boolean} accept Whether to accept (or decline).
+ * @returns {Promise<void>}
+ */
   async function respondToInvitation(btn, accept) {
     btn.disabled = true;
     try {
@@ -3204,6 +3925,13 @@
     }
   }
 
+/**
+ * Opens or closes a role and re-renders.
+ *
+ * @param {Object} role The role object.
+ * @param {string} status 'open' or 'closed'.
+ * @returns {Promise<void>}
+ */
   async function setRoleStatus(role, status) {
     try {
       await API.updateRole(role.roleid, { status });
@@ -3214,6 +3942,12 @@
     }
   }
 
+/**
+ * Renders an organization card.
+ *
+ * @param {Object} org The organization object.
+ * @returns {string} The card HTML.
+ */
   function orgCard(org) {
     return '<article class="panel listing-card">' +
       '<div class="spread"><h3><a href="#/orgs/' + encodeURIComponent(org.slug) + '">' + escapeHtml(org.name) + '</a></h3>' +
@@ -3223,6 +3957,13 @@
       '</article>';
   }
 
+/**
+ * Renders the organizations page, or a single organization view.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {string|undefined} slug The organization slug when viewing one.
+ * @returns {Promise<void>}
+ */
   async function viewOrganizations(root, slug) {
     if (!requireGate(root)) return;
     if (slug) return viewOrganization(root, slug);
@@ -3256,6 +3997,13 @@
     bindInvitations(root);
   }
 
+/**
+ * Renders a single organization with members and roles.
+ *
+ * @param {HTMLElement} root The view root.
+ * @param {string} slug The organization slug.
+ * @returns {Promise<void>}
+ */
   async function viewOrganization(root, slug) {
     const org = await API.organization(slug);
     const isOwner = org.membership === 'owner';
@@ -3342,6 +4090,11 @@
 
   /* ---------------- Theme ---------------- */
 
+/**
+ * Applies the light/dark theme and updates the toggle icon.
+ *
+ * @param {string} theme 'light', 'dark', or '' (system).
+ */
   function applyTheme(theme) {
     if (theme === 'light' || theme === 'dark') {
       document.documentElement.setAttribute('data-theme', theme);
@@ -3354,6 +4107,9 @@
     btn.innerHTML = dark ? ICON.sun : ICON.moon;
   }
 
+/**
+ * Restores the saved theme and wires the theme toggle.
+ */
   function initTheme() {
     const stored = localStorage.getItem('collab.theme');
     applyTheme(stored || '');

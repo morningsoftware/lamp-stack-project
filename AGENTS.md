@@ -295,5 +295,5 @@ Give every function in the API surface — `api/handlers/`, `api/config/`, and t
 
 - **No `.htaccess`** — routing is `PATH_INFO` (API) + `#/` hash (SPA). Don't add rewrite rules; keep the app deployable on a stock Apache/PHP host.
 - **MySQL `CHECK` constraints can't reference FK columns with a referential action.** This is why `chk_messages_one_share` (a CHECK on `roleid`/`organizationid`) was removed — the "share a role *or* an organization, not both" rule is enforced in the API (`messageShareTarget()` in `conversations.php`) instead.
-- **Messaging is client-side polling (5s)**, not real-time/websockets. The conversation view re-fetches on an interval; `cache: 'no-store'` is set on API fetches to avoid stale responses.
+- **Messaging is client-side polling (5s), not real-time/websockets.** A self-scheduling timer re-fetches only while the messages view is active and the tab is visible; the conversation list is fetched conditionally (`ETag`/`If-None-Match` → 304) and the open thread fetches only new messages (`?since=<id>`). `cache: 'no-store'` is set on API fetches to avoid stale responses.
 - **Maintenance mode**: dropping a `MAINTENANCE_MODE=true` value in `.env` makes `api/index.php` return a 503 with `{"maintenance":true}`; the SPA shows a maintenance screen. Toggle via `.env`, not a flag file.
