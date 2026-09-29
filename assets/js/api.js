@@ -18,13 +18,14 @@
 
     token: sessionStorage.getItem(tokenKey) || null,
 
-    setToken(token) {
+    setToken(token, broadcast = true) {
       this.token = token || null;
       if (token) {
         sessionStorage.setItem(tokenKey, token);
       } else {
         sessionStorage.removeItem(tokenKey);
       }
+      if (broadcast && sessionChannel) sessionChannel.postMessage({ type: 'change', token: this.token });
     },
 
     async request(method, path, body, options = {}) {
@@ -327,11 +328,35 @@
     },
   };
 
-  window.addEventListener('storage', (e) => {
-    if (e.key !== null && e.key !== tokenKey) return;
-    API.token = localStorage.getItem(tokenKey) || null;
-    window.dispatchEvent(new Event(API.token ? 'session-started' : 'session-expired'));
-  });
+  const sessionChannel = typeof BroadcastChannel === 'function'
+    ? new BroadcastChannel(tokenKey) : null;
+  let sessionReady;
+  API.ready = new Promise(resolve => { sessionReady = resolve; });
+  if (sessionChannel) {
+    const requestId = crypto.randomUUID();
+    let awaitingSession = !API.token;
+    sessionChannel.onmessage = ({ data }) => {
+      if (!data || typeof data !== 'object') return;
+      if (data.type === 'request' && API.token) {
+        sessionChannel.postMessage({ type: 'response', requestId: data.requestId, token: API.token });
+      } else if (data.type === 'response' && awaitingSession && data.requestId === requestId && typeof data.token === 'string') {
+        awaitingSession = false;
+        API.setToken(data.token, false);
+        sessionReady();
+        window.dispatchEvent(new Event('session-changed'));
+      } else if (data.type === 'change' && (data.token === null || typeof data.token === 'string')) {
+        awaitingSession = false;
+        API.setToken(data.token, false);
+        sessionReady();
+        window.dispatchEvent(new Event('session-changed'));
+      }
+    };
+    if (API.token) sessionReady();
+    else {
+      sessionChannel.postMessage({ type: 'request', requestId });
+      setTimeout(sessionReady, 500);
+    }
+  } else sessionReady();
 
   window.API = API;
 })();
